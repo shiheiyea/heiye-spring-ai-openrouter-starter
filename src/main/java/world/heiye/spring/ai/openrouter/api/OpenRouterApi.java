@@ -1,7 +1,6 @@
 package world.heiye.spring.ai.openrouter.api;
 
 import com.fasterxml.jackson.annotation.*;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.model.*;
 import org.springframework.ai.retry.RetryUtils;
 import org.springframework.http.HttpHeaders;
@@ -14,7 +13,6 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import world.heiye.spring.ai.openrouter.utils.JsonUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -28,7 +26,6 @@ import java.util.function.Predicate;
  * @version: v1.0.0
  * @description: openRouter api 设置
  */
-@Slf4j
 public class OpenRouterApi {
     /**
      * 默认模型
@@ -127,7 +124,7 @@ public class OpenRouterApi {
                 // 过滤掉结束标记
                 .filter(SSE_DONE_PREDICATE.negate())
                 // 转换为对象
-                .map(content -> JsonUtils.parseObject(content, ChatCompletionChunk.class))
+                .map(content -> ModelOptionsUtils.jsonToObject(content, ChatCompletionChunk.class))
                 .map(chunk -> {
                     // 判断是否需要工具调用
                     if (this.chunkMerger.isStreamingToolFunctionCall(chunk)) {

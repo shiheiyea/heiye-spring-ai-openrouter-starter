@@ -3,7 +3,6 @@ package world.heiye.spring.ai.openrouter;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import lombok.Data;
 import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.lang.Nullable;
@@ -18,7 +17,6 @@ import java.util.*;
  * @version: v1.0.0
  * @description:
  */
-@Data
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class OpenRouterChatOptions implements ToolCallingChatOptions {
     /**
@@ -353,5 +351,65 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
             return this.options;
         }
 
+    }
+
+    @Nullable
+    @Override
+    public String getModel() {
+        return model;
+    }
+
+    public void setModel(String model) {
+        this.model = model;
+    }
+
+    @Nullable
+    @Override
+    public Double getTemperature() {
+        return temperature;
+    }
+
+    public void setTemperature(Double temperature) {
+        this.temperature = temperature;
+    }
+
+    public Boolean getStream() {
+        return stream;
+    }
+
+    public void setStream(Boolean stream) {
+        this.stream = stream;
+    }
+
+    public String getEffort() {
+        return effort;
+    }
+
+    public void setEffort(String effort) {
+        this.effort = effort;
+    }
+
+    public Integer getThinkMaxTokens() {
+        return thinkMaxTokens;
+    }
+
+    public void setThinkMaxTokens(Integer thinkMaxTokens) {
+        this.thinkMaxTokens = thinkMaxTokens;
+    }
+
+    public Boolean getExclude() {
+        return exclude;
+    }
+
+    public void setExclude(Boolean exclude) {
+        this.exclude = exclude;
+    }
+
+    public Boolean getEnable() {
+        return enable;
+    }
+
+    public void setEnable(Boolean enable) {
+        this.enable = enable;
     }
 }

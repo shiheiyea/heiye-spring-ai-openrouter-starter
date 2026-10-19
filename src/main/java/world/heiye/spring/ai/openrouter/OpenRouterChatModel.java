@@ -1,8 +1,6 @@
 package world.heiye.spring.ai.openrouter;
 
 import io.micrometer.observation.ObservationRegistry;
-import lombok.Data;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.MessageType;
@@ -38,8 +36,6 @@ import java.util.List;
  * @version: v1.0.0
  * @description: OpenRouterChatModel
  */
-@Data
-@Slf4j
 public class OpenRouterChatModel implements ChatModel {
     /**
      * 工具调用管理器

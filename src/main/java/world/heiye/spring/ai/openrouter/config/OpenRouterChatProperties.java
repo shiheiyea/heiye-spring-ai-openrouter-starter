@@ -1,6 +1,5 @@
 package world.heiye.spring.ai.openrouter.config;
 
-import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
 import world.heiye.spring.ai.openrouter.OpenRouterChatOptions;
@@ -13,7 +12,6 @@ import world.heiye.spring.ai.openrouter.api.OpenRouterApi.ChatModel;
  * @description: OpenRouter 聊天配置， 继承 OpenRouterParentProperties
  *              用于在 yml 文件中配置相关参数
  */
-@Data
 // 声明此类绑定配置文件中以 spring.ai.openrouter.chat 为前缀的属性。例如 spring.ai.openrouter.chat.enabled=true 会映射到类的 enabled 字段
 @ConfigurationProperties("spring.ai.openrouter.chat")
 public class OpenRouterChatProperties extends OpenRouterParentProperties{
@@ -38,5 +36,25 @@ public class OpenRouterChatProperties extends OpenRouterParentProperties{
     static {
         DEFAULT_CHAT_MODEL = ChatModel.GOOGLE_GEMINI_3_FLASH_PREVIEW.getValue();
         DEFAULT_TEMPERATURE = (double)1.0F;
+    }
+
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
+    }
+
+    public String getCompletionsPath() {
+        return completionsPath;
+    }
+
+    public void setCompletionsPath(String completionsPath) {
+        this.completionsPath = completionsPath;
+    }
+
+    public OpenRouterChatOptions getOptions() {
+        return options;
     }
 }
