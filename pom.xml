@@ -14,80 +14,67 @@
     </description>
 
     <properties>
-        <revision>1.1.1</revision>
+        <revision>1.1.0</revision>
         <!-- Maven 相关 -->
         <java.version>17</java.version>
         <maven.compiler.source>${java.version}</maven.compiler.source>
         <maven.compiler.target>${java.version}</maven.compiler.target>
-        <maven-compiler-plugin.version>3.13.0</maven-compiler-plugin.version>
+        <maven.compiler.release>${java.version}</maven.compiler.release>
+        <maven.compiler-plugin.version>3.13.0</maven.compiler-plugin.version>
 
-        <!--根据 Spring AI 1.1.1 版本配置-->
-        <spring.boot.version>3.5.8</spring.boot.version>
-        <spring.context.support.version>6.2.14</spring.context.support.version>
-        <spring.webflux.version>6.2.14</spring.webflux.version>
+        <!-- 根据 Spring AI 1.1.0 版本配置 -->
+        <!-- Spring AI 构件版本，与 spring-ai-bom:1.1.0 保持一致 -->
+        <spring-ai.version>1.1.0</spring-ai.version>
+        <!-- Spring AI 1.1.0 基于 Spring Boot 3.5.7 / Spring Framework 6.2.12 -->
+        <spring-boot.version>3.5.7</spring-boot.version>
+        <spring-framework.version>6.2.12</spring-framework.version>
+
+        <!-- 以下版本均取自 spring-boot-dependencies:3.5.7，保证与 Spring AI 1.1.0 传递依赖一致 -->
         <slf4j.version>2.0.17</slf4j.version>
-        <commons.lang3.version>3.12.0</commons.lang3.version>
+        <micrometer.version>1.15.5</micrometer.version>
+        <mockito.version>5.17.0</mockito.version>
 
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
-
-    <url/>
-    <licenses>
-        <license>
-            <name>Apache 2.0</name>
-            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
-            <distribution>repo</distribution>
-        </license>
-    </licenses>
-    <developers>
-        <developer/>
-    </developers>
-    <scm>
-        <connection/>
-        <developerConnection/>
-        <tag/>
-        <url/>
-    </scm>
 
     <dependencies>
         <!-- 自动配置相关 -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-autoconfigure-model-tool</artifactId>
-            <version>${revision}</version>
+            <version>${spring-ai.version}</version>
             <scope>compile</scope>
         </dependency>
+
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-autoconfigure-retry</artifactId>
-            <version>${revision}</version>
-            <scope>compile</scope>
+            <version>${spring-ai.version}</version>
         </dependency>
+
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-autoconfigure-model-chat-observation</artifactId>
-            <version>${revision}</version>
-            <scope>compile</scope>
+            <version>${spring-ai.version}</version>
         </dependency>
+        
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter</artifactId>
-            <version>${spring.boot.version}</version>
-            <scope>compile</scope>
+            <version>${spring-boot.version}</version>
             <optional>true</optional>
         </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-configuration-processor</artifactId>
-            <version>${spring.boot.version}</version>
-            <scope>compile</scope>
+            <version>${spring-boot.version}</version>
             <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-autoconfigure-processor</artifactId>
-            <version>${spring.boot.version}</version>
-            <scope>compile</scope>
+            <version>${spring-boot.version}</version>
             <optional>true</optional>
         </dependency>
 
@@ -95,52 +82,60 @@
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-model</artifactId>
-            <version>${revision}</version>
-            <scope>compile</scope>
+            <version>${spring-ai.version}</version>
         </dependency>
+
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-retry</artifactId>
-            <version>${revision}</version>
-            <scope>compile</scope>
+            <version>${spring-ai.version}</version>
         </dependency>
+
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-context-support</artifactId>
-            <version>${spring.context.support.version}</version>
-            <scope>compile</scope>
+            <version>${spring-framework.version}</version>
         </dependency>
+
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-webflux</artifactId>
-            <version>${spring.webflux.version}</version>
-            <scope>compile</scope>
+            <version>${spring-framework.version}</version>
         </dependency>
+
         <dependency>
-            <groupId>org.apache.commons</groupId>
-            <artifactId>commons-lang3</artifactId>
-            <version>${commons.lang3.version}</version>
-            <scope>provided</scope>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>${slf4j.version}</version>
+        </dependency>
+
+        <!-- 测试依赖 -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-test</artifactId>
+            <version>${spring-ai.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-observation-test</artifactId>
+            <version>${micrometer.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <version>${spring-boot.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <version>${mockito.version}</version>
+            <scope>test</scope>
         </dependency>
     </dependencies>
-
-    <build>
-        <plugins>
-            <!-- 确保编译插件支持注解处理 -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <version>${maven-compiler-plugin.version}</version>
-                <configuration>
-                    <annotationProcessorPaths>
-                        <path>
-                            <groupId>org.springframework.boot</groupId>
-                            <artifactId>spring-boot-configuration-processor</artifactId>
-                            <version>${spring.boot.version}</version>
-                        </path>
-                    </annotationProcessorPaths>
-                </configuration>
-            </plugin>
-        </plugins>
-    </build>
 </project>
