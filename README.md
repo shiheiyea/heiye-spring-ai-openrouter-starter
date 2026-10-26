@@ -27,3 +27,9 @@ OpenRouterChatOptions options = OpenRouterChatOptions.builder()
 `reasoning`，不会逐项继承其中未设置的字段。`stream` 选项非 null 时覆盖请求构建方法传入的流式标志。
 
 验证：使用 JDK 17 执行 `mvn test`。
+
+## 构建与依赖版本
+
+项目继承 Spring Boot Parent 3.5.7，并导入 Spring AI BOM 1.1.0，统一管理基础依赖、构建插件和 Spring AI 依赖版本。
+Java 编译版本为 17，产物为普通依赖 JAR。使用 JDK 17 执行 `mvn clean verify` 可完成测试和打包。
+升级 Spring Boot 时修改 parent 的版本；升级 Spring AI 时修改 `spring-ai.version`。
