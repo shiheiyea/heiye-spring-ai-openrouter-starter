@@ -10,7 +10,7 @@
         <relativePath/>
     </parent>
 
-    <groupId>world.heiye</groupId>
+    <groupId>io.github.shiheiyea</groupId>
     <artifactId>heiye-spring-ai-model-openrouter-starter</artifactId>
     <version>${revision}</version>
     <name>heiye-spring-ai-model-openrouter-starter</name>

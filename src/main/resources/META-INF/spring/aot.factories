@@ -1,2 +1,2 @@
 org.springframework.aot.hint.RuntimeHintsRegistrar=\
-	world.heiye.spring.ai.openrouter.aot.OpenRouterRuntimeHints
+	io.github.shiheiyea.spring.ai.openrouter.aot.OpenRouterRuntimeHints
