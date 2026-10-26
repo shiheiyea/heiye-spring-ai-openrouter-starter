@@ -360,7 +360,7 @@ public class OpenRouterChatModel implements ChatModel {
         // 获取 OpenRouter 聊天选项
         OpenRouterChatOptions requestOptions = (OpenRouterChatOptions) prompt.getOptions();
         // 进行参数转移
-        request = OpenRouterRequestAdapter.adaptOptionsToRequest(requestOptions, request);
+        request = ModelOptionsUtils.merge(requestOptions, request, OpenRouterApi.ChatCompletionRequest.class);
 
         // 这里会用请求配置构建工具调用方法信息数组
         // 这个 resolveToolDefinitions 会找寻 options 中传入的方法是否存在

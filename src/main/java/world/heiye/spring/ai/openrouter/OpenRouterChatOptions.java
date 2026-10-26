@@ -40,37 +40,30 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
     @JsonProperty("stream")
     private Boolean stream;
 
-//    /**
-//     * 结构化输出响应格式
-//     */
-//    @JsonProperty("response_format")
-//    Object responseFormat;
-//
-//    /**
-//     * 如果模型遇到停止数组中指定的任何标记，则立即停止生成。
-//     */
-//    @JsonProperty("stop")
-//    List<String> stop;
 
     /**
-     * 愿意分配多少 token 用于推理
+     * 推理配置。运行时提供 reasoning 时整体覆盖默认配置，不进行嵌套字段合并。
      */
-    @JsonProperty("effort")
-    String effort;
+    @JsonProperty("reasoning")
+    private OpenRouterApi.Think reasoning;
 
-    /**
-     * 推理的最大 token 数量
-     */
-    @JsonProperty("think.max_Tokens")
-    Integer thinkMaxTokens;
+    @JsonProperty("max_tokens")
+    private Integer maxTokens;
 
-    // 是否排除推理结果
-    @JsonProperty("exclude")
-    Boolean exclude;
+    @JsonProperty("frequency_penalty")
+    private Double frequencyPenalty;
 
-    // 是否启用推理
-    @JsonProperty("enabled")
-    Boolean enable;
+    @JsonProperty("presence_penalty")
+    private Double presencePenalty;
+
+    @JsonProperty("top_p")
+    private Double topP;
+
+    @JsonProperty("top_k")
+    private Integer topK;
+
+    @JsonProperty("stop")
+    private List<String> stop;
 
     @JsonProperty("tools")
     private List<OpenRouterApi.FunctionTool> tools;
@@ -147,32 +140,32 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
 
     @Override
     public Double getFrequencyPenalty() {
-        return 0.0;
+        return this.frequencyPenalty;
     }
 
     @Override
     public Integer getMaxTokens() {
-        return 0;
+        return this.maxTokens;
     }
 
     @Override
     public Double getPresencePenalty() {
-        return 0.0;
+        return this.presencePenalty;
     }
 
     @Override
+    @JsonIgnore
     public List<String> getStopSequences() {
-        return List.of();
+        return this.stop;
     }
 
-    @JsonIgnore
     public Integer getTopK() {
-        return null;
+        return this.topK;
     }
 
     @Override
     public Double getTopP() {
-        return 0.0;
+        return this.topP;
     }
 
     public Map<String, Object> getToolContext() {
@@ -191,19 +184,15 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
     public static OpenRouterChatOptions fromOptions(OpenRouterChatOptions fromOptions) {
         return builder()
                 .model(fromOptions.getModel())
-//                .frequencyPenalty(fromOptions.getFrequencyPenalty())
-//                .logprobs(fromOptions.getLogprobs())
-//                .topLogprobs(fromOptions.getTopLogprobs())
-//                .maxTokens(fromOptions.getMaxTokens())
-//                .presencePenalty(fromOptions.getPresencePenalty())
-//                .responseFormat(fromOptions.getResponseFormat())
-//                .stop(fromOptions.getStop() != null ? new ArrayList(fromOptions.getStop()) : null)
                 .temperature(fromOptions.getTemperature())
-                .effort(fromOptions.getEffort())
-                .thinkMaxTokens(fromOptions.getThinkMaxTokens())
-                .exclude(fromOptions.getExclude())
-                .enable(fromOptions.getEnable())
-//                .topP(fromOptions.getTopP())
+                .reasoning(fromOptions.getReasoning())
+                .stream(fromOptions.getStream())
+                .maxTokens(fromOptions.getMaxTokens())
+                .frequencyPenalty(fromOptions.getFrequencyPenalty())
+                .presencePenalty(fromOptions.getPresencePenalty())
+                .topP(fromOptions.getTopP())
+                .topK(fromOptions.getTopK())
+                .stop(fromOptions.getStop() != null ? new ArrayList<>(fromOptions.getStop()) : null)
                 .tools(fromOptions.getTools())
                 .toolChoice(fromOptions.getToolChoice())
                 .toolCallbacks((List) (fromOptions.getToolCallbacks() != null ? new ArrayList(fromOptions.getToolCallbacks()) : null))
@@ -235,69 +224,32 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
         }
 
         public Builder effort(String effort) {
-            this.options.effort = effort;
+            this.options.setEffort(effort);
             return this;
         }
 
         public Builder thinkMaxTokens(Integer thinkMaxTokens) {
-            this.options.thinkMaxTokens = thinkMaxTokens;
+            this.options.setThinkMaxTokens(thinkMaxTokens);
             return this;
         }
 
         public Builder exclude(Boolean exclude) {
-            this.options.exclude = exclude;
+            this.options.setExclude(exclude);
             return this;
         }
 
         public Builder enable(Boolean enable) {
-            this.options.enable = enable;
+            this.options.setEnable(enable);
             return this;
         }
 
-//        public Builder frequencyPenalty(Double frequencyPenalty) {
-//            this.options.frequencyPenalty = frequencyPenalty;
-//            return this;
-//        }
-//
-//        public Builder logprobs(Boolean logprobs) {
-//            this.options.logprobs = logprobs;
-//            return this;
-//        }
-//
-//        public Builder topLogprobs(Integer topLogprobs) {
-//            this.options.topLogprobs = topLogprobs;
-//            return this;
-//        }
-//
-//        public Builder maxTokens(Integer maxTokens) {
-//            this.options.maxTokens = maxTokens;
-//            return this;
-//        }
-//
-//        public Builder presencePenalty(Double presencePenalty) {
-//            this.options.presencePenalty = presencePenalty;
-//            return this;
-//        }
-//
-//        public Builder responseFormat(ResponseFormat responseFormat) {
-//            this.options.responseFormat = responseFormat;
-//            return this;
-//        }
 
-//        public Builder stop(List<String> stop) {
-//            this.options.stop = stop;
-//            return this;
-//        }
 
         public Builder temperature(Double temperature) {
             this.options.temperature = temperature;
             return this;
         }
 
-//        public Builder topP(Double topP) {
-//            this.options.topP = topP;
-//            return this;
-//        }
 
         public Builder tools(List<OpenRouterApi.FunctionTool> tools) {
             this.options.tools = tools;
@@ -347,6 +299,46 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
             return this;
         }
 
+        public Builder maxTokens(Integer maxTokens) {
+            this.options.maxTokens = maxTokens;
+            return this;
+        }
+
+        public Builder frequencyPenalty(Double frequencyPenalty) {
+            this.options.frequencyPenalty = frequencyPenalty;
+            return this;
+        }
+
+        public Builder presencePenalty(Double presencePenalty) {
+            this.options.presencePenalty = presencePenalty;
+            return this;
+        }
+
+        public Builder topP(Double topP) {
+            this.options.topP = topP;
+            return this;
+        }
+
+        public Builder topK(Integer topK) {
+            this.options.topK = topK;
+            return this;
+        }
+
+        public Builder stop(List<String> stop) {
+            this.options.stop = stop;
+            return this;
+        }
+
+        public Builder reasoning(OpenRouterApi.Think reasoning) {
+            this.options.reasoning = reasoning;
+            return this;
+        }
+
+        public Builder stream(Boolean stream) {
+            this.options.stream = stream;
+            return this;
+        }
+
         public OpenRouterChatOptions build() {
             return this.options;
         }
@@ -381,35 +373,80 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
         this.stream = stream;
     }
 
+    public OpenRouterApi.Think getReasoning() {
+        return this.reasoning;
+    }
+
+    public void setReasoning(OpenRouterApi.Think reasoning) {
+        this.reasoning = reasoning;
+    }
+
+    @JsonIgnore
     public String getEffort() {
-        return effort;
+        return reasoning != null && reasoning.effort() != null ? reasoning.effort().name() : null;
     }
 
     public void setEffort(String effort) {
-        this.effort = effort;
+        OpenRouterApi.Effort value = OpenRouterApi.Effort.fromString(effort);
+        Assert.isTrue(effort == null || value != null, "Unsupported reasoning effort: " + effort);
+        this.reasoning = new OpenRouterApi.Think(value, getThinkMaxTokens(), getExclude(),
+                reasoning != null ? reasoning.enabled() : null);
     }
 
+    @JsonIgnore
     public Integer getThinkMaxTokens() {
-        return thinkMaxTokens;
+        return reasoning != null ? reasoning.maxTokens() : null;
     }
 
     public void setThinkMaxTokens(Integer thinkMaxTokens) {
-        this.thinkMaxTokens = thinkMaxTokens;
+        this.reasoning = new OpenRouterApi.Think(reasoning != null ? reasoning.effort() : null,
+                thinkMaxTokens, getExclude(), reasoning != null ? reasoning.enabled() : null);
     }
 
+    @JsonIgnore
     public Boolean getExclude() {
-        return exclude;
+        return reasoning != null ? reasoning.exclude() : null;
     }
 
     public void setExclude(Boolean exclude) {
-        this.exclude = exclude;
-    }
-
-    public Boolean getEnable() {
-        return enable;
+        this.reasoning = new OpenRouterApi.Think(reasoning != null ? reasoning.effort() : null,
+                getThinkMaxTokens(), exclude, reasoning != null ? reasoning.enabled() : null);
     }
 
     public void setEnable(Boolean enable) {
-        this.enable = enable;
+        this.reasoning = new OpenRouterApi.Think(reasoning != null ? reasoning.effort() : null,
+                getThinkMaxTokens(), getExclude(), enable);
+    }
+
+    public void setMaxTokens(Integer maxTokens) {
+        this.maxTokens = maxTokens;
+    }
+
+    public void setFrequencyPenalty(Double frequencyPenalty) {
+        this.frequencyPenalty = frequencyPenalty;
+    }
+
+    public void setPresencePenalty(Double presencePenalty) {
+        this.presencePenalty = presencePenalty;
+    }
+
+    public void setTopP(Double topP) {
+        this.topP = topP;
+    }
+
+    public void setTopK(Integer topK) {
+        this.topK = topK;
+    }
+
+    public void setStop(List<String> stop) {
+        this.stop = stop;
+    }
+
+    public List<String> getStop() {
+        return this.stop;
+    }
+
+    public void setStopSequences(List<String> stopSequences) {
+        this.stop = stopSequences;
     }
 }
