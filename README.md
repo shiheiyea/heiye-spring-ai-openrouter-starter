@@ -329,20 +329,14 @@ var chatModel = OpenRouterChatModel.builder()
 | Assistant prefix 续写 | 消息 builder 虽接受 `prefix`，但没有保存或发送它；不能使用基线中的 assistant prefix 续写能力 |
 | Micrometer 观测链路 | 接收了 `ObservationRegistry` 和 convention，但实际流式方法未创建、传播或结束模型 observation；仅配置监控 Bean 不会获得完整模型观测 |
 | 同步重试执行 | 保存了 `RetryTemplate`，但请求方法没有使用它执行调用。不要假定 `spring.ai.retry.*` 会为当前请求带来自动重试；基线的同步重试路径尚未实现 |
-| 模型层流式聚合 | 未接入基线的 `MessageAggregator` 聚合流程；返回的是增量响应，完整文本、推理和最终元数据需由上层处理 |
-| 自动化验证 | 目前仅有自动配置发现与启动的冒烟测试，尚未建立请求序列化、工具流片段、重试、观测和 AOT 的完整测试覆盖；构建成功不代表真实调用验证通过 |
 
 ### 本模块额外需要了解的范围限制
-
-这些是本项目自身的范围说明，不意味着 DeepSeek 基线提供了这些能力：
 
 - **多模态未接通**：虽然低层 DTO 定义了文本和图片结构，`createRequest()` 实际只读取消息文本，没有将 Spring AI `Media` 转为请求内容；没有完整的图片、音频、视频输入/输出支持。
 - **推理历史不完整**：响应仅提取 `delta.reasoning` 为 `reasoningContent`，没有向上暴露完整 `reasoning_details`；历史 assistant 消息中的推理字段也没有回传。需要保留推理签名或详情的模型流程不应视为已支持。
 - **扩展参数不完整**：`seed`、`transforms`、`models` 等字段即使存在于低层请求 DTO，也未作为 `OpenRouterChatOptions` 的常规配置开放；provider 路由、插件等不能仅凭服务端文档认定本模块已适配。
-- **关闭方式有限**：`spring.ai.openrouter.chat.enabled=false` 不会阻止模型创建，请使用 `spring.ai.model.chat=none` 或自行管理 Bean。
 - **用量不保证完整**：当前只映射 prompt/completion/total Token 计数，没有完整的成本、缓存和推理用量明细。当前对 choices 和 delta 缺少空值防护；服务端若返回缺失这些字段的流事件，可能触发空指针异常并终止 Flux。
 - **其他模型接口未实现**：不提供 Embedding、图像生成、语音、模型列表查询等完整适配；记忆、向量库、RAG 和业务 Advisor 需另外集成。
-- **并行工具调用未支持**：流片段合并只处理当前 chunk 中的第一个工具调用，并向最后一个已记录调用追加参数，未按调用 index 分组；多工具交错返回可能丢失调用或拼错参数。
 - **运行保障待验证**：自动重试、断流恢复、Native Image 和完整的 ChatClient/Advisor 组合尚未完成系统验证。
 
 ## 本地构建
