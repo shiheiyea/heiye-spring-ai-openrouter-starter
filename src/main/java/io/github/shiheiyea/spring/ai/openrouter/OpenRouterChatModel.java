@@ -193,6 +193,10 @@ public class OpenRouterChatModel implements ChatModel {
         return Flux.deferContextual(contextView -> {
             ChatCompletionRequest request = createRequest(prompt, true);
 
+            // 先建流再建观测：建流是惰性的，不会发请求，但它的前置校验会同步抛异常；
+            // 排在观测之前，可避免校验失败时留下已启动却不会被 stop 的观测。
+            Flux<ChatCompletionChunk> completionChunks = this.openRouterApi.chatCompletionStream(request);
+
             ChatModelObservationContext observationContext = ChatModelObservationContext.builder()
                     .prompt(prompt)
                     .provider(OpenRouterConstants.PROVIDER_NAME)
@@ -212,7 +216,7 @@ public class OpenRouterChatModel implements ChatModel {
                 observation.start();
             }
 
-            Flux<ChatResponse> flux = this.openRouterApi.chatCompletionStream(request)
+            Flux<ChatResponse> flux = completionChunks
                     .map(chunk -> {
                         List<Generation> generations = chunk.choices().stream()
                                 .map(this::buildGeneration)
@@ -223,7 +227,6 @@ public class OpenRouterChatModel implements ChatModel {
                                 previousChatResponse);
                         return new ChatResponse(generations, this.from(chunk, cumulativeUsage));
                     })
-                    .onErrorMap(e -> e)
                     .doOnError(observation::error)
                     .doFinally(signal -> observation.stop())
                     .contextWrite(context -> context.put(ObservationThreadLocalAccessor.KEY, observation));
