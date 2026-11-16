@@ -6,7 +6,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.5.7</version>
+        <version>4.1.0</version>
         <relativePath/>
     </parent>
 
@@ -15,7 +15,8 @@
     <version>${revision}</version>
     <name>heiye-spring-ai-model-openrouter-starter</name>
     <description>
-        基于 Spring AI 1.1.0 的 OpenRouter 聊天模型适配器，提供 Spring Boot 自动配置、流式聊天、推理文本读取与工具调用支持。
+        基于 Spring AI 2.0.0 的 OpenRouter 聊天模型适配器，提供 Spring Boot 自动配置、非流式与流式聊天、推理详情读取、
+        多模态输入与工具调用支持。
     </description>
     <url>https://github.com/shiheiyea/heiye-spring-ai-openrouter-starter</url>
 
@@ -40,9 +41,9 @@
     </scm>
 
     <properties>
-        <revision>1.1.0</revision>
+        <revision>2.0.0</revision>
         <java.version>17</java.version>
-        <spring-ai.version>1.1.0</spring-ai.version>
+        <spring-ai.version>2.0.0</spring-ai.version>
     </properties>
 
     <dependencyManagement>
@@ -58,7 +59,7 @@
     </dependencyManagement>
 
     <dependencies>
-        <!-- 自动配置相关 -->
+        <!-- 自动配置骨架，取向官方 autoconfigure 模块，三条均为必需依赖 -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-autoconfigure-model-tool</artifactId>
@@ -74,7 +75,31 @@
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-autoconfigure-model-chat-observation</artifactId>
         </dependency>
-        
+
+        <!-- 模型调用内核 -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-model</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-retry</artifactId>
+        </dependency>
+
+        <!-- 以下五条仅用于向容器提供默认 RestClient.Builder / WebClient.Builder，必须 optional -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-restclient</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webclient</artifactId>
+            <optional>true</optional>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter</artifactId>
@@ -86,36 +111,11 @@
             <artifactId>spring-boot-configuration-processor</artifactId>
             <optional>true</optional>
         </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-autoconfigure-processor</artifactId>
             <optional>true</optional>
-        </dependency>
-
-        <!-- 模型调用相关 -->
-        <dependency>
-            <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-model</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-retry</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.springframework</groupId>
-            <artifactId>spring-context-support</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.springframework</groupId>
-            <artifactId>spring-webflux</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-api</artifactId>
         </dependency>
 
         <!-- 测试依赖 -->

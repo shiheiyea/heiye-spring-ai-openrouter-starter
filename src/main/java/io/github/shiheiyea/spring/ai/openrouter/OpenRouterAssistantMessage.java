@@ -1,5 +1,5 @@
 /*
- * Copyright 2023-2025 the original author or authors.
+ * Copyright 2023-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,80 +20,111 @@
 
 package io.github.shiheiyea.spring.ai.openrouter;
 
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+
+import org.jspecify.annotations.Nullable;
+
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.content.Media;
 
-import java.util.List;
-import java.util.Map;
+import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ReasoningDetail;
 
-/**
- * @author: heiye
- * @date: 2025/11/12 下午9:12
- * @version: v1.0.0
- * @description:
- */
 public class OpenRouterAssistantMessage extends AssistantMessage {
-    /**
-     * 推理内容
-     */
-    private String reasoningContent;
 
-    public OpenRouterAssistantMessage(String content) {
+    private @Nullable String reasoningContent;
+
+    private @Nullable List<ReasoningDetail> reasoningDetails;
+
+    public OpenRouterAssistantMessage(@Nullable String content) {
         super(content);
     }
 
-    protected OpenRouterAssistantMessage(String content, String reasoningContent, Boolean prefix, Map<String, Object> properties, List<ToolCall> toolCalls, List<Media> media) {
+    /**
+     * 创建携带推理信息的助手消息。
+     */
+    protected OpenRouterAssistantMessage(@Nullable String content, @Nullable String reasoningContent,
+            @Nullable List<ReasoningDetail> reasoningDetails, Map<String, Object> properties,
+            List<ToolCall> toolCalls, List<Media> media) {
         super(content, properties, toolCalls, media);
         this.reasoningContent = reasoningContent;
+        this.reasoningDetails = reasoningDetails;
     }
 
-    public String getReasoningContent() {
+    public @Nullable String getReasoningContent() {
         return this.reasoningContent;
     }
 
-    public static final class Builder {
-        private String content;
-        private Map<String, Object> properties = Map.of();
-        private List<ToolCall> toolCalls = List.of();
-        private List<Media> media = List.of();
-        private Boolean prefix;
-        private String reasoningContent;
-
-        public Builder() {
-        }
-
-        public Builder content(String content) {
-            this.content = content;
-            return this;
-        }
-
-        public Builder properties(Map<String, Object> properties) {
-            this.properties = properties;
-            return this;
-        }
-
-        public Builder toolCalls(List<ToolCall> toolCalls) {
-            this.toolCalls = toolCalls;
-            return this;
-        }
-
-        public Builder media(List<Media> media) {
-            this.media = media;
-            return this;
-        }
-
-        public Builder prefix(Boolean prefix) {
-            this.prefix = prefix;
-            return this;
-        }
-
-        public Builder reasoningContent(String reasoningContent) {
-            this.reasoningContent = reasoningContent;
-            return this;
-        }
-
-        public OpenRouterAssistantMessage build() {
-            return new OpenRouterAssistantMessage(this.content, this.reasoningContent, this.prefix, this.properties, this.toolCalls, this.media);
-        }
+    public void setReasoningContent(@Nullable String reasoningContent) {
+        this.reasoningContent = reasoningContent;
     }
+
+    public @Nullable List<ReasoningDetail> getReasoningDetails() {
+        return this.reasoningDetails;
+    }
+
+    public void setReasoningDetails(@Nullable List<ReasoningDetail> reasoningDetails) {
+        this.reasoningDetails = reasoningDetails;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof OpenRouterAssistantMessage that)) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        return Objects.equals(this.reasoningContent, that.reasoningContent)
+                && Objects.equals(this.reasoningDetails, that.reasoningDetails);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), this.reasoningContent, this.reasoningDetails);
+    }
+
+    @Override
+    public String toString() {
+        return "OpenRouterAssistantMessage [content=" + this.getText() + ", reasoningContent="
+                + this.reasoningContent + ", reasoningDetails=" + this.reasoningDetails + ", metadata="
+                + this.getMetadata() + ", toolCalls=" + this.getToolCalls() + ", media=" + this.getMedia() + "]";
+    }
+
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    public static class Builder extends AbstractBuilder<Builder> {
+
+    }
+
+    public static class AbstractBuilder<B extends AbstractBuilder<B>> extends AssistantMessage.Builder<B> {
+
+        protected @Nullable String reasoningContent;
+
+        protected @Nullable List<ReasoningDetail> reasoningDetails;
+
+        public B reasoningContent(@Nullable String reasoningContent) {
+            this.reasoningContent = reasoningContent;
+            return self();
+        }
+
+        public B reasoningDetails(@Nullable List<ReasoningDetail> reasoningDetails) {
+            this.reasoningDetails = reasoningDetails;
+            return self();
+        }
+
+        @Override
+        public OpenRouterAssistantMessage build() {
+            return new OpenRouterAssistantMessage(this.content, this.reasoningContent, this.reasoningDetails,
+                    this.properties, this.toolCalls, this.media);
+        }
+
+    }
+
 }

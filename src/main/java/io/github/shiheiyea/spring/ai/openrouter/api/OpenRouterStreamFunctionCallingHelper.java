@@ -1,5 +1,5 @@
 /*
- * Copyright 2023-2025 the original author or authors.
+ * Copyright 2023-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,147 +20,172 @@
 
 package io.github.shiheiyea.spring.ai.openrouter.api;
 
-import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ChatCompletionChunk;
-import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ChatCompletionMessage.Role;
-import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ChatCompletionMessage.ToolCall;
-import org.springframework.util.CollectionUtils;
-import org.springframework.util.StringUtils;
-
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
+import org.jspecify.annotations.Nullable;
 
-/**
- * @author: heiye
- * @date: 2025/11/12 下午9:12
- * @version: v1.0.0
- * @description:
- *      解释：流式工具调用助手
- *      作用：将流式返回的多个 Chunk 碎片合并成一个完整的工具调用请求
- */
+import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ChatCompletionChunk;
+import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ChatCompletionChunk.ChunkChoice;
+import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ChatCompletionFinishReason;
+import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ChatCompletionFunction;
+import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ChatCompletionMessage;
+import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ReasoningDetail;
+import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ToolCall;
+
 public class OpenRouterStreamFunctionCallingHelper {
 
     /**
-     * 核心方法：合并两个 Chunk
-     * 原理：保留元数据（ID, Model），但对 choices 里的内容进行增量合并
+     * 把当前分块合并到已累积的分块上。
+     *
+     * 除文本与工具调用参数需要拼接外，其余字段都是「当前有值则覆盖、否则沿用旧值」。
      */
-    public ChatCompletionChunk merge(ChatCompletionChunk previous, ChatCompletionChunk current) {
+    public ChatCompletionChunk merge(@Nullable ChatCompletionChunk previous, ChatCompletionChunk current) {
         if (previous == null) {
             return current;
         }
 
-        String id = current.id() != null ? current.id() : previous.id();
-        Long created = current.created() != null ? current.created() : previous.created();
-        String model = current.model() != null ? current.model() : previous.model();
-        String object = current.object() != null ? current.object() : previous.object();
-        OpenRouterApi.Usage usage = current.usage() != null ? current.usage() : previous.usage();
+        List<ChunkChoice> choices = !current.choices().isEmpty()
+                ? List.of(this.merge(previous.choices().get(0), current.choices().get(0))) : List.of();
 
-        // 合并 Choice 里的 delta 内容
-        ChatCompletionChunk.Choice previousChoice = CollectionUtils.isEmpty(previous.choices()) ? null : previous.choices().get(0);
-        ChatCompletionChunk.Choice currentChoice = CollectionUtils.isEmpty(current.choices()) ? null : current.choices().get(0);
+        return new ChatCompletionChunk(current.id() != null ? current.id() : previous.id(), choices,
+                current.created() != null ? current.created() : previous.created(),
+                current.model() != null ? current.model() : previous.model(),
+                current.serviceTier() != null ? current.serviceTier() : previous.serviceTier(),
+                current.systemFingerprint() != null ? current.systemFingerprint() : previous.systemFingerprint(),
+                current.object() != null ? current.object() : previous.object(),
+                current.usage() != null ? current.usage() : previous.usage(),
+                current.error() != null ? current.error() : previous.error());
+    }
 
-        ChatCompletionChunk.Choice mergedChoice = this.merge(previousChoice, currentChoice);
-        List<ChatCompletionChunk.Choice> chunkChoices = mergedChoice == null ? List.of() : List.of(mergedChoice);
-
-        return new ChatCompletionChunk(id, chunkChoices, created, model, object, previous.systemFingerprint(), usage);
+    private ChunkChoice merge(ChunkChoice previous, ChunkChoice current) {
+        return new ChunkChoice(current.finishReason() != null ? current.finishReason() : previous.finishReason(),
+                current.nativeFinishReason() != null ? current.nativeFinishReason() : previous.nativeFinishReason(),
+                current.index() != null ? current.index() : previous.index(),
+                this.merge(previous.delta(), current.delta()),
+                current.logprobs() != null ? current.logprobs() : previous.logprobs());
     }
 
     /**
-     * 合并 Choice 碎片
+     * 合并增量消息。
+     *
+     * 文本内容按顺序拼接；工具调用按 id 判定是新增还是续写，续写时把参数拼接到最后一个调用上。
      */
-    private ChatCompletionChunk.Choice merge(ChatCompletionChunk.Choice previous, ChatCompletionChunk.Choice current) {
+    private ChatCompletionMessage merge(@Nullable ChatCompletionMessage previous, ChatCompletionMessage current) {
         if (previous == null) {
             return current;
         }
 
-        // FinishReason 只有在最后一段才会出现
-        OpenRouterApi.ChatCompletionFinishReason finishReason = current.finishReason() != null ? current.finishReason() : previous.finishReason();
-        Long index = current.index() != null ? current.index() : previous.index();
-
-        // 核心：合并 Delta 消息（包含 content 和 tool_calls）
-        OpenRouterApi.ChatCompletionMessage mergedDelta = this.merge(previous.delta(), current.delta());
-
-        return new ChatCompletionChunk.Choice(index, mergedDelta, finishReason, current.nativeFinishReason());
-    }
-
-    /**
-     * 合并消息体（Delta）
-     * 原理：
-     * 1. Content（文本）进行字符串累加。
-     * 2. ToolCalls（工具）进行增量合并。
-     */
-    private OpenRouterApi.ChatCompletionMessage merge(OpenRouterApi.ChatCompletionMessage previous, OpenRouterApi.ChatCompletionMessage current) {
-        // 1. 合并文本内容
-        String content = current.content() != null
-                ? (previous.content() != null ? previous.content() + current.content() : current.content())
-                : (previous.content() != null ? previous.content() : "");
-
-        OpenRouterApi.ChatCompletionMessage.Role role = current.role() != null ? current.role() : previous.role();
-        role = (role != null) ? role : Role.ASSISTANT;
-
-        String toolCallId = current.toolCallId() != null ? current.toolCallId() : previous.toolCallId();
-
-        // 2. 合并工具调用
-        List<ToolCall> toolCalls = new ArrayList<>();
-        ToolCall lastPreviousToolCall = null;
-
-        if (!CollectionUtils.isEmpty(previous.toolCalls())) {
-            // 取出上一个已有的工具
-            lastPreviousToolCall = previous.toolCalls().get(previous.toolCalls().size() - 1);
-            if (previous.toolCalls().size() > 1) {
-                toolCalls.addAll(previous.toolCalls().subList(0, previous.toolCalls().size() - 1));
-            }
+        Object previousRawContent = previous.rawContent();
+        String content;
+        if (current.rawContent() instanceof String currentText) {
+            content = (previousRawContent instanceof String previousText) ? previousText + currentText : currentText;
+        }
+        else {
+            content = (previousRawContent instanceof String previousString) ? previousString : null;
         }
 
-        if (!CollectionUtils.isEmpty(current.toolCalls())) {
-            ToolCall currentToolCall = current.toolCalls().iterator().next();
-            // 如果当前 chunk 带有 ID，说明是一个新的工具调用的开始
-            if (StringUtils.hasText(currentToolCall.id())) {
-                if (lastPreviousToolCall != null) {
-                    toolCalls.add(lastPreviousToolCall);
+        List<ToolCall> toolCalls;
+        List<ToolCall> currentToolCalls = current.toolCalls();
+        if (currentToolCalls != null && !currentToolCalls.isEmpty()) {
+            List<ToolCall> previousToolCalls = previous.toolCalls() != null ? new ArrayList<>(previous.toolCalls())
+                    : new ArrayList<>();
+            for (ToolCall currentToolCall : currentToolCalls) {
+                // 带 id 的是新调用的开头，不带 id 的是上一个调用的参数续写
+                if (currentToolCall.id() != null) {
+                    previousToolCalls.add(currentToolCall);
                 }
-                toolCalls.add(currentToolCall);
-            } else {
-                // 如果没有 ID，说明是在填充上一个工具的 arguments（参数字符串）
-                toolCalls.add(this.merge(lastPreviousToolCall, currentToolCall));
+                else if (!previousToolCalls.isEmpty()) {
+                    int lastIndex = previousToolCalls.size() - 1;
+                    previousToolCalls.set(lastIndex,
+                            this.merge(previousToolCalls.get(lastIndex), currentToolCall));
+                }
             }
-        } else if (lastPreviousToolCall != null) {
-            toolCalls.add(lastPreviousToolCall);
+            toolCalls = previousToolCalls;
+        }
+        else {
+            toolCalls = previous.toolCalls();
         }
 
-        return new OpenRouterApi.ChatCompletionMessage(content, role, content, toolCallId, toolCalls);
+        return new ChatCompletionMessage(content,
+                current.role() != null ? current.role() : previous.role(),
+                current.name() != null ? current.name() : previous.name(),
+                current.toolCallId() != null ? current.toolCallId() : previous.toolCallId(), toolCalls,
+                this.concat(previous.reasoning(), current.reasoning()),
+                this.mergeReasoningDetails(previous.reasoningDetails(), current.reasoningDetails()),
+                current.images() != null ? current.images() : previous.images(),
+                current.audio() != null ? current.audio() : previous.audio());
     }
 
     /**
-     * 合并具体的 ToolCall 碎片
+     * 推理详情按 index 归并，同一条详情的内容也可能跨块拆开。
      */
+    private @Nullable List<ReasoningDetail> mergeReasoningDetails(@Nullable List<ReasoningDetail> previous,
+            @Nullable List<ReasoningDetail> current) {
+        if (current == null || current.isEmpty()) {
+            return previous;
+        }
+        if (previous == null || previous.isEmpty()) {
+            return current;
+        }
+        List<ReasoningDetail> merged = new ArrayList<>(previous);
+        for (ReasoningDetail detail : current) {
+            int existing = this.indexOf(merged, detail);
+            if (existing < 0) {
+                merged.add(detail);
+            }
+            else {
+                merged.set(existing, this.merge(merged.get(existing), detail));
+            }
+        }
+        return merged;
+    }
+
+    private int indexOf(List<ReasoningDetail> details, ReasoningDetail target) {
+        for (int i = 0; i < details.size(); i++) {
+            if (Objects.equals(details.get(i).index(), target.index())
+                    && details.get(i).type() == target.type()) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private ReasoningDetail merge(ReasoningDetail previous, ReasoningDetail current) {
+        return new ReasoningDetail(current.type() != null ? current.type() : previous.type(),
+                current.id() != null ? current.id() : previous.id(),
+                current.index() != null ? current.index() : previous.index(),
+                current.format() != null ? current.format() : previous.format(),
+                this.concat(previous.text(), current.text()), this.concat(previous.summary(), current.summary()),
+                this.concat(previous.data(), current.data()),
+                current.signature() != null ? current.signature() : previous.signature(),
+                this.concat(previous.arguments(), current.arguments()), this.concat(previous.result(), current.result()),
+                current.toolCallId() != null ? current.toolCallId() : previous.toolCallId(),
+                current.toolName() != null ? current.toolName() : previous.toolName());
+    }
+
+    private @Nullable String concat(@Nullable String previous, @Nullable String current) {
+        if (current == null) {
+            return previous;
+        }
+        return previous == null ? current : previous + current;
+    }
+
     private ToolCall merge(ToolCall previous, ToolCall current) {
-        if (previous == null) {
-            return current;
-        }
-
-        String id = StringUtils.hasText(current.id()) ? current.id() : previous.id();
-        String type = current.type() != null ? current.type() : previous.type();
-
-        // 合并 Function 里的 arguments 字符串
-        OpenRouterApi.ChatCompletionMessage.ChatCompletionFunction function = this.merge(previous.function(), current.function());
-
-        return new ToolCall(current.index() != null ? current.index() : previous.index(), id, type, function);
+        return new ToolCall(current.index() != null ? current.index() : previous.index(),
+                current.id() != null ? current.id() : previous.id(),
+                current.type() != null ? current.type() : previous.type(),
+                this.merge(previous.function(), current.function()));
     }
 
     /**
-     * 合并 Function 参数碎片
+     * 函数名只在首块出现，参数则按块陆续送达，因此参数要拼接。
      */
-    private OpenRouterApi.ChatCompletionMessage.ChatCompletionFunction merge(
-            OpenRouterApi.ChatCompletionMessage.ChatCompletionFunction previous,
-            OpenRouterApi.ChatCompletionMessage.ChatCompletionFunction current) {
+    private ChatCompletionFunction merge(@Nullable ChatCompletionFunction previous, ChatCompletionFunction current) {
         if (previous == null) {
             return current;
         }
-
-        String name = StringUtils.hasText(current.name()) ? current.name() : previous.name();
-
-        // 关键：将当前收到的参数碎片累加到 StringBuilder 后面
         StringBuilder arguments = new StringBuilder();
         if (previous.arguments() != null) {
             arguments.append(previous.arguments());
@@ -168,36 +193,25 @@ public class OpenRouterStreamFunctionCallingHelper {
         if (current.arguments() != null) {
             arguments.append(current.arguments());
         }
-
-        return new OpenRouterApi.ChatCompletionMessage.ChatCompletionFunction(name, arguments.toString());
+        return new ChatCompletionFunction(current.name() != null ? current.name() : previous.name(),
+                arguments.toString());
     }
 
-    /**
-     * 判断当前 Chunk 是否包含工具调用意图
-     */
-    public boolean isStreamingToolFunctionCall(ChatCompletionChunk chunk) {
-        // 当前 Chunk 为空或者没有 choice 时，返回 false
-        if (chunk == null || CollectionUtils.isEmpty(chunk.choices())) {
+    public boolean isStreamingToolFunctionCall(@Nullable ChatCompletionChunk chunk) {
+        if (chunk == null || chunk.choices() == null || chunk.choices().isEmpty()) {
             return false;
         }
-        // 获取第一个 choice
-        ChatCompletionChunk.Choice choice = chunk.choices().get(0);
-        // 如果choice 的 delta 不为空，并且 delta 的 tool_calls 不为空，则返回 true
-        return choice.delta() != null && !CollectionUtils.isEmpty(choice.delta().toolCalls());
+        ChatCompletionMessage delta = chunk.choices().get(0).delta();
+        return delta != null && delta.toolCalls() != null && !delta.toolCalls().isEmpty();
     }
 
-    /**
-     * 判断工具调用是否已经全部传输完成（通过 finish_reason 判断）
-     */
-    public boolean isStreamingToolFunctionCallFinish(ChatCompletionChunk chunk) {
-        // 当前 Chunk 为空或者没有 choice 时，返回 false
-        if (chunk == null || CollectionUtils.isEmpty(chunk.choices())) {
+    public boolean isStreamingToolFunctionCallFinish(@Nullable ChatCompletionChunk chunk) {
+        if (chunk == null || chunk.choices() == null || chunk.choices().isEmpty()) {
             return false;
         }
-        // 获取第一个 choice
-        ChatCompletionChunk.Choice choice = chunk.choices().get(0);
-        // 注意：OpenRouter 可能返回 TOOL_CALLS 或 tool_calls，取决于具体模型
-        return OpenRouterApi.ChatCompletionFinishReason.TOOL_CALLS.equals(choice.finishReason()) ||
-                OpenRouterApi.ChatCompletionFinishReason.TOOL_CALL.equals(choice.finishReason());
+        ChatCompletionFinishReason finishReason = chunk.choices().get(0).finishReason();
+        return finishReason == ChatCompletionFinishReason.TOOL_CALLS
+                || finishReason == ChatCompletionFinishReason.TOOL_CALL;
     }
+
 }

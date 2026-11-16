@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 the original author or authors.
+ * Copyright 2023-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,453 +20,678 @@
 
 package io.github.shiheiyea.spring.ai.openrouter;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+
+import org.jspecify.annotations.Nullable;
+
+import org.springframework.ai.chat.prompt.ChatOptions;
+import org.springframework.ai.model.tool.DefaultToolCallingChatOptions;
+import org.springframework.ai.model.tool.ToolCallingChatOptions;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.util.Assert;
+
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import org.springframework.ai.model.tool.ToolCallingChatOptions;
-import org.springframework.ai.tool.ToolCallback;
-import org.springframework.lang.Nullable;
-import org.springframework.util.Assert;
+
 import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi;
 
-import java.util.*;
-
 /**
- * @author: heiye
- * @date: 2025/11/11 下午10:14
- * @version: v1.0.0
- * @description:
+ * OpenRouter 聊天选项。
+ *
+ * 与官方模块的差异在于字段规模：OpenRouter 的请求体有 43 个键，这里把其中高频的
+ * 25 个做成强类型字段，其余 12 个低频字段通过 {@code extraBody} 原样透传。
+ * 避免为一个罕用字段改一次选项类。
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class OpenRouterChatOptions implements ToolCallingChatOptions {
-    /**
-     * 模型名称
-     */
-    @JsonProperty("model")
-    private String model;
 
-    /**
-     * 此设置会影响模型响应的多样性。较低的值会导致更可预测和典型的响应，
-     * 而较高的值则鼓励更多样化和不太常见的响应。
-     * 在 0 时，模型始终对给定输入给出相同的响应。
-     * Range: [0, 2]
-     */
-    @JsonProperty("temperature")
-    private Double temperature;
+    private final String model;
 
-    /**
-     * 是否流式返回结果
-     */
-    @JsonProperty("stream")
-    private Boolean stream;
+    private final Double temperature;
 
+    private final Boolean stream;
 
-    /**
-     * 推理配置。运行时提供 reasoning 时整体覆盖默认配置，不进行嵌套字段合并。
-     */
-    @JsonProperty("reasoning")
-    private OpenRouterApi.Think reasoning;
+    private final OpenRouterApi.Reasoning reasoning;
 
-    @JsonProperty("max_tokens")
-    private Integer maxTokens;
+    private final Integer maxTokens;
 
-    @JsonProperty("frequency_penalty")
-    private Double frequencyPenalty;
+    private final Double frequencyPenalty;
 
-    @JsonProperty("presence_penalty")
-    private Double presencePenalty;
+    private final Double presencePenalty;
 
-    @JsonProperty("top_p")
-    private Double topP;
+    private final Double topP;
 
-    @JsonProperty("top_k")
-    private Integer topK;
+    private final Integer topK;
 
-    @JsonProperty("stop")
-    private List<String> stop;
+    private final Integer seed;
 
-    @JsonProperty("tools")
-    private List<OpenRouterApi.FunctionTool> tools;
+    private final Double minP;
 
-    @JsonProperty("tool_choice")
-    private Object toolChoice;
+    private final Double topA;
 
-    // 内部工具执行
-    @JsonIgnore
-    private Boolean internalToolExecutionEnabled;
+    private final Double repetitionPenalty;
 
-    // 工具调用
-    @JsonIgnore
-    private List<ToolCallback> toolCallbacks = new ArrayList();
+    private final List<String> stop;
 
-    // 工具名称
-    @JsonIgnore
-    private Set<String> toolNames = new HashSet();
+    private final Integer topLogprobs;
 
-    // 工具内容
-    @JsonIgnore
-    private Map<String, Object> toolContext = new HashMap();
+    private final Boolean logprobs;
+
+    private final List<String> models;
+
+    private final List<String> modalities;
+
+    private final String serviceTier;
+
+    private final String user;
+
+    private final Boolean parallelToolCalls;
+
+    private final String promptCacheKey;
+
+    private final String sessionId;
+
+    private final OpenRouterApi.ProviderPreferences provider;
+
+    private final List<OpenRouterApi.FunctionTool> tools;
+
+    private final Object toolChoice;
+
+    private final Map<String, Object> extraBody;
+
+    private final List<ToolCallback> toolCallbacks;
+
+    private final Map<String, Object> toolContext;
+
+    protected OpenRouterChatOptions(@Nullable String model, @Nullable Double temperature, @Nullable Boolean stream,
+            OpenRouterApi.@Nullable Reasoning reasoning, @Nullable Integer maxTokens,
+            @Nullable Double frequencyPenalty, @Nullable Double presencePenalty, @Nullable Double topP,
+            @Nullable Integer topK, @Nullable Integer seed, @Nullable Double minP, @Nullable Double topA,
+            @Nullable Double repetitionPenalty, @Nullable List<String> stop, @Nullable Integer topLogprobs,
+            @Nullable Boolean logprobs, @Nullable List<String> models, @Nullable List<String> modalities,
+            @Nullable String serviceTier, @Nullable String user, @Nullable Boolean parallelToolCalls,
+            @Nullable String promptCacheKey, @Nullable String sessionId,
+            OpenRouterApi.@Nullable ProviderPreferences provider, @Nullable List<OpenRouterApi.FunctionTool> tools,
+            @Nullable Object toolChoice, @Nullable Map<String, Object> extraBody,
+            @Nullable List<ToolCallback> toolCallbacks, @Nullable Map<String, Object> toolContext) {
+        // OpenRouter 没有默认模型，缺省时沿用接口层声明的模型，保证请求始终带 model
+        this.model = model != null ? model : OpenRouterApi.DEFAULT_CHAT_MODEL.getValue();
+        this.temperature = temperature != null ? temperature : 0.7;
+        this.stream = stream;
+        this.reasoning = reasoning;
+        this.maxTokens = maxTokens;
+        this.frequencyPenalty = frequencyPenalty;
+        this.presencePenalty = presencePenalty;
+        this.topP = topP;
+        this.topK = topK;
+        this.seed = seed;
+        this.minP = minP;
+        this.topA = topA;
+        this.repetitionPenalty = repetitionPenalty;
+        this.stop = stop != null ? List.copyOf(stop) : null;
+        this.topLogprobs = topLogprobs;
+        this.logprobs = logprobs;
+        this.models = models != null ? List.copyOf(models) : null;
+        this.modalities = modalities != null ? List.copyOf(modalities) : null;
+        this.serviceTier = serviceTier;
+        this.user = user;
+        this.parallelToolCalls = parallelToolCalls;
+        this.promptCacheKey = promptCacheKey;
+        this.sessionId = sessionId;
+        this.provider = provider;
+        this.tools = tools != null ? List.copyOf(tools) : null;
+        this.toolChoice = toolChoice;
+        this.extraBody = extraBody != null ? Map.copyOf(extraBody) : null;
+        this.toolCallbacks = toolCallbacks != null ? List.copyOf(toolCallbacks) : null;
+        this.toolContext = toolContext != null ? Map.copyOf(toolContext) : null;
+    }
 
     public static Builder builder() {
         return new Builder();
     }
 
-    public List<OpenRouterApi.FunctionTool> getTools() {
-        return this.tools;
-    }
-
-    public void setTools(List<OpenRouterApi.FunctionTool> tools) {
-        this.tools = tools;
-    }
-
-    public Object getToolChoice() {
-        return this.toolChoice;
-    }
-
-    public void setToolChoice(Object toolChoice) {
-        this.toolChoice = toolChoice;
-    }
-
-    @JsonIgnore
-    public List<ToolCallback> getToolCallbacks() {
-        return this.toolCallbacks;
-    }
-
-    @JsonIgnore
-    public void setToolCallbacks(List<ToolCallback> toolCallbacks) {
-       this.toolCallbacks = toolCallbacks;
-    }
-
-    @JsonIgnore
-    public Set<String>  getToolNames() {
-        return this.toolNames;
-    }
-
-    @JsonIgnore
-    public void setToolNames(Set<String> toolNames) {
-        this.toolNames = toolNames;
-    }
-
-    @Nullable
-    @JsonIgnore
-    public Boolean getInternalToolExecutionEnabled() {
-        return this.internalToolExecutionEnabled;
-    }
-
-    @JsonIgnore
-    public void setInternalToolExecutionEnabled(@Nullable Boolean internalToolExecutionEnabled) {
-        this.internalToolExecutionEnabled = internalToolExecutionEnabled;
+    @Override
+    public String getModel() {
+        return this.model;
     }
 
     @Override
-    public Double getFrequencyPenalty() {
-        return this.frequencyPenalty;
+    public @Nullable Double getTemperature() {
+        return this.temperature;
+    }
+
+    public @Nullable Boolean getStream() {
+        return this.stream;
+    }
+
+    public OpenRouterApi.@Nullable Reasoning getReasoning() {
+        return this.reasoning;
     }
 
     @Override
-    public Integer getMaxTokens() {
+    public @Nullable Integer getMaxTokens() {
         return this.maxTokens;
     }
 
     @Override
-    public Double getPresencePenalty() {
+    public @Nullable Double getFrequencyPenalty() {
+        return this.frequencyPenalty;
+    }
+
+    @Override
+    public @Nullable Double getPresencePenalty() {
         return this.presencePenalty;
     }
 
     @Override
-    @JsonIgnore
-    public List<String> getStopSequences() {
-        return this.stop;
-    }
-
-    public Integer getTopK() {
-        return this.topK;
-    }
-
-    @Override
-    public Double getTopP() {
+    public @Nullable Double getTopP() {
         return this.topP;
     }
 
-    public Map<String, Object> getToolContext() {
-        return this.toolContext;
+    @Override
+    public @Nullable Integer getTopK() {
+        return this.topK;
     }
 
-    public void setToolContext(Map<String, Object> toolContext) {
-        this.toolContext = toolContext;
+    public @Nullable Integer getSeed() {
+        return this.seed;
+    }
+
+    public @Nullable Double getMinP() {
+        return this.minP;
+    }
+
+    public @Nullable Double getTopA() {
+        return this.topA;
+    }
+
+    public @Nullable Double getRepetitionPenalty() {
+        return this.repetitionPenalty;
     }
 
     @Override
-    public OpenRouterChatOptions copy() {
-        return fromOptions(this);
-    }
-
-    public static OpenRouterChatOptions fromOptions(OpenRouterChatOptions fromOptions) {
-        return builder()
-                .model(fromOptions.getModel())
-                .temperature(fromOptions.getTemperature())
-                .reasoning(fromOptions.getReasoning())
-                .stream(fromOptions.getStream())
-                .maxTokens(fromOptions.getMaxTokens())
-                .frequencyPenalty(fromOptions.getFrequencyPenalty())
-                .presencePenalty(fromOptions.getPresencePenalty())
-                .topP(fromOptions.getTopP())
-                .topK(fromOptions.getTopK())
-                .stop(fromOptions.getStop() != null ? new ArrayList<>(fromOptions.getStop()) : null)
-                .tools(fromOptions.getTools())
-                .toolChoice(fromOptions.getToolChoice())
-                .toolCallbacks((List) (fromOptions.getToolCallbacks() != null ? new ArrayList(fromOptions.getToolCallbacks()) : null))
-                .toolNames((Set) (fromOptions.getToolNames() != null ? new HashSet(fromOptions.getToolNames()) : null))
-                .internalToolExecutionEnabled(fromOptions.getInternalToolExecutionEnabled())
-                .toolContext(fromOptions.getToolContext() != null ? new HashMap(fromOptions.getToolContext()) : null)
-                .build();
-    }
-
-    public static final class Builder {
-        protected OpenRouterChatOptions options;
-
-        public Builder() {
-            this.options = new OpenRouterChatOptions();
-        }
-
-        public Builder(OpenRouterChatOptions options) {
-            this.options = options;
-        }
-
-        public Builder model(String model) {
-            this.options.model = model;
-            return this;
-        }
-
-        public Builder model(OpenRouterApi.ChatModel openRouterChatModel) {
-            this.options.model = openRouterChatModel.getName();
-            return this;
-        }
-
-        public Builder effort(String effort) {
-            this.options.setEffort(effort);
-            return this;
-        }
-
-        public Builder thinkMaxTokens(Integer thinkMaxTokens) {
-            this.options.setThinkMaxTokens(thinkMaxTokens);
-            return this;
-        }
-
-        public Builder exclude(Boolean exclude) {
-            this.options.setExclude(exclude);
-            return this;
-        }
-
-        public Builder enable(Boolean enable) {
-            this.options.setEnable(enable);
-            return this;
-        }
-
-
-
-        public Builder temperature(Double temperature) {
-            this.options.temperature = temperature;
-            return this;
-        }
-
-
-        public Builder tools(List<OpenRouterApi.FunctionTool> tools) {
-            this.options.tools = tools;
-            return this;
-        }
-
-        public Builder toolChoice(Object toolChoice) {
-            this.options.toolChoice = toolChoice;
-            return this;
-        }
-
-        public Builder toolCallbacks(List<ToolCallback> toolCallbacks) {
-            this.options.setToolCallbacks(toolCallbacks);
-            return this;
-        }
-
-        public Builder toolCallbacks(ToolCallback... toolCallbacks) {
-            Assert.notNull(toolCallbacks, "toolCallbacks cannot be null");
-            this.options.toolCallbacks.addAll(Arrays.asList(toolCallbacks));
-            return this;
-        }
-
-        public Builder toolNames(Set<String> toolNames) {
-            Assert.notNull(toolNames, "toolNames cannot be null");
-            this.options.setToolNames(toolNames);
-            return this;
-        }
-
-        public Builder toolNames(String... toolNames) {
-            Assert.notNull(toolNames, "toolNames cannot be null");
-            this.options.toolNames.addAll(Set.of(toolNames));
-            return this;
-        }
-
-        public Builder internalToolExecutionEnabled(@Nullable Boolean internalToolExecutionEnabled) {
-            this.options.setInternalToolExecutionEnabled(internalToolExecutionEnabled);
-            return this;
-        }
-
-        public Builder toolContext(Map<String, Object> toolContext) {
-            if (this.options.toolContext == null) {
-                this.options.toolContext = toolContext;
-            } else {
-                this.options.toolContext.putAll(toolContext);
-            }
-
-            return this;
-        }
-
-        public Builder maxTokens(Integer maxTokens) {
-            this.options.maxTokens = maxTokens;
-            return this;
-        }
-
-        public Builder frequencyPenalty(Double frequencyPenalty) {
-            this.options.frequencyPenalty = frequencyPenalty;
-            return this;
-        }
-
-        public Builder presencePenalty(Double presencePenalty) {
-            this.options.presencePenalty = presencePenalty;
-            return this;
-        }
-
-        public Builder topP(Double topP) {
-            this.options.topP = topP;
-            return this;
-        }
-
-        public Builder topK(Integer topK) {
-            this.options.topK = topK;
-            return this;
-        }
-
-        public Builder stop(List<String> stop) {
-            this.options.stop = stop;
-            return this;
-        }
-
-        public Builder reasoning(OpenRouterApi.Think reasoning) {
-            this.options.reasoning = reasoning;
-            return this;
-        }
-
-        public Builder stream(Boolean stream) {
-            this.options.stream = stream;
-            return this;
-        }
-
-        public OpenRouterChatOptions build() {
-            return this.options;
-        }
-
-    }
-
-    @Nullable
-    @Override
-    public String getModel() {
-        return model;
-    }
-
-    public void setModel(String model) {
-        this.model = model;
-    }
-
-    @Nullable
-    @Override
-    public Double getTemperature() {
-        return temperature;
-    }
-
-    public void setTemperature(Double temperature) {
-        this.temperature = temperature;
-    }
-
-    public Boolean getStream() {
-        return stream;
-    }
-
-    public void setStream(Boolean stream) {
-        this.stream = stream;
-    }
-
-    public OpenRouterApi.Think getReasoning() {
-        return this.reasoning;
-    }
-
-    public void setReasoning(OpenRouterApi.Think reasoning) {
-        this.reasoning = reasoning;
-    }
-
-    @JsonIgnore
-    public String getEffort() {
-        return reasoning != null && reasoning.effort() != null ? reasoning.effort().name() : null;
-    }
-
-    public void setEffort(String effort) {
-        OpenRouterApi.Effort value = OpenRouterApi.Effort.fromString(effort);
-        Assert.isTrue(effort == null || value != null, "Unsupported reasoning effort: " + effort);
-        this.reasoning = new OpenRouterApi.Think(value, getThinkMaxTokens(), getExclude(),
-                reasoning != null ? reasoning.enabled() : null);
-    }
-
-    @JsonIgnore
-    public Integer getThinkMaxTokens() {
-        return reasoning != null ? reasoning.maxTokens() : null;
-    }
-
-    public void setThinkMaxTokens(Integer thinkMaxTokens) {
-        this.reasoning = new OpenRouterApi.Think(reasoning != null ? reasoning.effort() : null,
-                thinkMaxTokens, getExclude(), reasoning != null ? reasoning.enabled() : null);
-    }
-
-    @JsonIgnore
-    public Boolean getExclude() {
-        return reasoning != null ? reasoning.exclude() : null;
-    }
-
-    public void setExclude(Boolean exclude) {
-        this.reasoning = new OpenRouterApi.Think(reasoning != null ? reasoning.effort() : null,
-                getThinkMaxTokens(), exclude, reasoning != null ? reasoning.enabled() : null);
-    }
-
-    public void setEnable(Boolean enable) {
-        this.reasoning = new OpenRouterApi.Think(reasoning != null ? reasoning.effort() : null,
-                getThinkMaxTokens(), getExclude(), enable);
-    }
-
-    public void setMaxTokens(Integer maxTokens) {
-        this.maxTokens = maxTokens;
-    }
-
-    public void setFrequencyPenalty(Double frequencyPenalty) {
-        this.frequencyPenalty = frequencyPenalty;
-    }
-
-    public void setPresencePenalty(Double presencePenalty) {
-        this.presencePenalty = presencePenalty;
-    }
-
-    public void setTopP(Double topP) {
-        this.topP = topP;
-    }
-
-    public void setTopK(Integer topK) {
-        this.topK = topK;
-    }
-
-    public void setStop(List<String> stop) {
-        this.stop = stop;
-    }
-
-    public List<String> getStop() {
+    public @Nullable List<String> getStopSequences() {
         return this.stop;
     }
 
-    public void setStopSequences(List<String> stopSequences) {
-        this.stop = stopSequences;
+    public @Nullable Integer getTopLogprobs() {
+        return this.topLogprobs;
     }
+
+    public @Nullable Boolean getLogprobs() {
+        return this.logprobs;
+    }
+
+    public @Nullable List<String> getModels() {
+        return this.models;
+    }
+
+    public @Nullable List<String> getModalities() {
+        return this.modalities;
+    }
+
+    public @Nullable String getServiceTier() {
+        return this.serviceTier;
+    }
+
+    public @Nullable String getUser() {
+        return this.user;
+    }
+
+    public @Nullable Boolean getParallelToolCalls() {
+        return this.parallelToolCalls;
+    }
+
+    public @Nullable String getPromptCacheKey() {
+        return this.promptCacheKey;
+    }
+
+    public @Nullable String getSessionId() {
+        return this.sessionId;
+    }
+
+    public OpenRouterApi.@Nullable ProviderPreferences getProvider() {
+        return this.provider;
+    }
+
+    public @Nullable List<OpenRouterApi.FunctionTool> getTools() {
+        return this.tools;
+    }
+
+    public @Nullable Object getToolChoice() {
+        return this.toolChoice;
+    }
+
+    public @Nullable Map<String, Object> getExtraBody() {
+        return this.extraBody;
+    }
+
+    @Override
+    @JsonIgnore
+    public @Nullable List<ToolCallback> getToolCallbacks() {
+        return this.toolCallbacks;
+    }
+
+    @Override
+    @JsonIgnore
+    public @Nullable Map<String, Object> getToolContext() {
+        return this.toolContext;
+    }
+
+    @Override
+    public Builder mutate() {
+        return OpenRouterChatOptions.builder()
+                // ChatOptions
+                .model(this.model)
+                .temperature(this.temperature)
+                .stream(this.stream)
+                .reasoning(this.reasoning)
+                .maxTokens(this.maxTokens)
+                .frequencyPenalty(this.frequencyPenalty)
+                .presencePenalty(this.presencePenalty)
+                .topP(this.topP)
+                .topK(this.topK)
+                .seed(this.seed)
+                .minP(this.minP)
+                .topA(this.topA)
+                .repetitionPenalty(this.repetitionPenalty)
+                .stop(this.stop)
+                .topLogprobs(this.topLogprobs)
+                .logprobs(this.logprobs)
+                .models(this.models)
+                .modalities(this.modalities)
+                .serviceTier(this.serviceTier)
+                .user(this.user)
+                .parallelToolCalls(this.parallelToolCalls)
+                .promptCacheKey(this.promptCacheKey)
+                .sessionId(this.sessionId)
+                .provider(this.provider)
+                // ToolCallingChatOptions
+                .tools(this.tools)
+                .toolChoice(this.toolChoice)
+                .extraBody(this.extraBody)
+                .toolCallbacks(this.toolCallbacks)
+                .toolContext(this.toolContext);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(this.model, this.temperature, this.stream, this.reasoning, this.maxTokens,
+                this.frequencyPenalty, this.presencePenalty, this.topP, this.topK, this.seed, this.minP, this.topA,
+                this.repetitionPenalty, this.stop, this.topLogprobs, this.logprobs, this.models, this.modalities,
+                this.serviceTier, this.user, this.parallelToolCalls, this.promptCacheKey, this.sessionId, this.provider,
+                this.tools, this.toolChoice, this.extraBody, this.toolCallbacks, this.toolContext);
+    }
+
+    @Override
+    public boolean equals(@Nullable Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        OpenRouterChatOptions that = (OpenRouterChatOptions) o;
+        return Objects.equals(this.model, that.model) && Objects.equals(this.temperature, that.temperature)
+                && Objects.equals(this.stream, that.stream) && Objects.equals(this.reasoning, that.reasoning)
+                && Objects.equals(this.maxTokens, that.maxTokens)
+                && Objects.equals(this.frequencyPenalty, that.frequencyPenalty)
+                && Objects.equals(this.presencePenalty, that.presencePenalty)
+                && Objects.equals(this.topP, that.topP) && Objects.equals(this.topK, that.topK)
+                && Objects.equals(this.seed, that.seed) && Objects.equals(this.minP, that.minP)
+                && Objects.equals(this.topA, that.topA)
+                && Objects.equals(this.repetitionPenalty, that.repetitionPenalty)
+                && Objects.equals(this.stop, that.stop) && Objects.equals(this.topLogprobs, that.topLogprobs)
+                && Objects.equals(this.logprobs, that.logprobs) && Objects.equals(this.models, that.models)
+                && Objects.equals(this.modalities, that.modalities)
+                && Objects.equals(this.serviceTier, that.serviceTier) && Objects.equals(this.user, that.user)
+                && Objects.equals(this.parallelToolCalls, that.parallelToolCalls)
+                && Objects.equals(this.promptCacheKey, that.promptCacheKey)
+                && Objects.equals(this.sessionId, that.sessionId) && Objects.equals(this.provider, that.provider)
+                && Objects.equals(this.tools, that.tools) && Objects.equals(this.toolChoice, that.toolChoice)
+                && Objects.equals(this.extraBody, that.extraBody)
+                && Objects.equals(this.toolCallbacks, that.toolCallbacks)
+                && Objects.equals(this.toolContext, that.toolContext);
+    }
+
+    @Override
+    public String toString() {
+        return "OpenRouterChatOptions [model=" + this.model + ", temperature=" + this.temperature + ", stream="
+                + this.stream + ", reasoning=" + this.reasoning + ", maxTokens=" + this.maxTokens
+                + ", frequencyPenalty=" + this.frequencyPenalty + ", presencePenalty=" + this.presencePenalty
+                + ", topP=" + this.topP + ", topK=" + this.topK + ", seed=" + this.seed + ", minP=" + this.minP
+                + ", topA=" + this.topA + ", repetitionPenalty=" + this.repetitionPenalty + ", stop=" + this.stop
+                + ", topLogprobs=" + this.topLogprobs + ", logprobs=" + this.logprobs + ", models=" + this.models
+                + ", modalities=" + this.modalities + ", serviceTier=" + this.serviceTier + ", user=" + this.user
+                + ", parallelToolCalls=" + this.parallelToolCalls + ", promptCacheKey=" + this.promptCacheKey
+                + ", sessionId=" + this.sessionId + ", provider=" + this.provider + ", tools=" + this.tools
+                + ", toolChoice=" + this.toolChoice + ", extraBody=" + this.extraBody + ", toolCallbacks="
+                + this.toolCallbacks + ", toolContext=" + this.toolContext + "]";
+    }
+
+    public static class Builder extends AbstractBuilder<Builder> {
+
+    }
+
+    protected abstract static class AbstractBuilder<B extends AbstractBuilder<B>>
+            extends DefaultToolCallingChatOptions.Builder<B> {
+
+        protected @Nullable String model;
+
+        protected @Nullable Double temperature;
+
+        protected @Nullable Boolean stream;
+
+        protected OpenRouterApi.@Nullable Reasoning reasoning;
+
+        protected @Nullable Integer maxTokens;
+
+        protected @Nullable Double frequencyPenalty;
+
+        protected @Nullable Double presencePenalty;
+
+        protected @Nullable Double topP;
+
+        protected @Nullable Integer topK;
+
+        protected @Nullable Integer seed;
+
+        protected @Nullable Double minP;
+
+        protected @Nullable Double topA;
+
+        protected @Nullable Double repetitionPenalty;
+
+        protected @Nullable List<String> stop;
+
+        protected @Nullable Integer topLogprobs;
+
+        protected @Nullable Boolean logprobs;
+
+        protected @Nullable List<String> models;
+
+        protected @Nullable List<String> modalities;
+
+        protected @Nullable String serviceTier;
+
+        protected @Nullable String user;
+
+        protected @Nullable Boolean parallelToolCalls;
+
+        protected @Nullable String promptCacheKey;
+
+        protected @Nullable String sessionId;
+
+        protected OpenRouterApi.@Nullable ProviderPreferences provider;
+
+        protected @Nullable List<OpenRouterApi.FunctionTool> tools;
+
+        protected @Nullable Object toolChoice;
+
+        protected @Nullable Map<String, Object> extraBody;
+
+        @Override
+        public B clone() {
+            B copy = super.clone();
+            copy.model = this.model;
+            copy.temperature = this.temperature;
+            copy.stream = this.stream;
+            copy.reasoning = this.reasoning;
+            copy.maxTokens = this.maxTokens;
+            copy.frequencyPenalty = this.frequencyPenalty;
+            copy.presencePenalty = this.presencePenalty;
+            copy.topP = this.topP;
+            copy.topK = this.topK;
+            copy.seed = this.seed;
+            copy.minP = this.minP;
+            copy.topA = this.topA;
+            copy.repetitionPenalty = this.repetitionPenalty;
+            copy.stop = this.stop;
+            copy.topLogprobs = this.topLogprobs;
+            copy.logprobs = this.logprobs;
+            copy.models = this.models;
+            copy.modalities = this.modalities;
+            copy.serviceTier = this.serviceTier;
+            copy.user = this.user;
+            copy.parallelToolCalls = this.parallelToolCalls;
+            copy.promptCacheKey = this.promptCacheKey;
+            copy.sessionId = this.sessionId;
+            copy.provider = this.provider;
+            copy.tools = this.tools;
+            copy.toolChoice = this.toolChoice;
+            copy.extraBody = this.extraBody;
+            return copy;
+        }
+
+        @Override
+        public B model(@Nullable String model) {
+            this.model = model;
+            return self();
+        }
+
+        public B model(OpenRouterApi.@Nullable ChatModel model) {
+            this.model = (model != null) ? model.getValue() : null;
+            return self();
+        }
+
+        public B temperature(@Nullable Double temperature) {
+            this.temperature = temperature;
+            return self();
+        }
+
+        public B stream(@Nullable Boolean stream) {
+            this.stream = stream;
+            return self();
+        }
+
+        public B reasoning(OpenRouterApi.@Nullable Reasoning reasoning) {
+            this.reasoning = reasoning;
+            return self();
+        }
+
+        @Override
+        public B maxTokens(@Nullable Integer maxTokens) {
+            this.maxTokens = maxTokens;
+            return self();
+        }
+
+        @Override
+        public B frequencyPenalty(@Nullable Double frequencyPenalty) {
+            this.frequencyPenalty = frequencyPenalty;
+            return self();
+        }
+
+        @Override
+        public B presencePenalty(@Nullable Double presencePenalty) {
+            this.presencePenalty = presencePenalty;
+            return self();
+        }
+
+        @Override
+        public B topP(@Nullable Double topP) {
+            this.topP = topP;
+            return self();
+        }
+
+        @Override
+        public B topK(@Nullable Integer topK) {
+            this.topK = topK;
+            return self();
+        }
+
+        public B seed(@Nullable Integer seed) {
+            this.seed = seed;
+            return self();
+        }
+
+        public B minP(@Nullable Double minP) {
+            this.minP = minP;
+            return self();
+        }
+
+        public B topA(@Nullable Double topA) {
+            this.topA = topA;
+            return self();
+        }
+
+        public B repetitionPenalty(@Nullable Double repetitionPenalty) {
+            this.repetitionPenalty = repetitionPenalty;
+            return self();
+        }
+
+        @Override
+        public B stopSequences(@Nullable List<String> stop) {
+            // 规范里数组分支声明了 maxItems: 4，描述也写 up to 4
+            Assert.isTrue(stop == null || stop.size() <= 4, "stop must contain at most 4 sequences");
+            this.stop = stop;
+            return self();
+        }
+
+        public B stop(@Nullable List<String> stop) {
+            return stopSequences(stop);
+        }
+
+        public B topLogprobs(@Nullable Integer topLogprobs) {
+            this.topLogprobs = topLogprobs;
+            return self();
+        }
+
+        public B logprobs(@Nullable Boolean logprobs) {
+            this.logprobs = logprobs;
+            return self();
+        }
+
+        public B models(@Nullable List<String> models) {
+            // 规范里 ChatModelNames 声明了 maxItems: 3
+            Assert.isTrue(models == null || models.size() <= 3, "models must contain at most 3 entries");
+            this.models = models;
+            return self();
+        }
+
+        public B modalities(@Nullable List<String> modalities) {
+            this.modalities = modalities;
+            return self();
+        }
+
+        public B serviceTier(@Nullable String serviceTier) {
+            this.serviceTier = serviceTier;
+            return self();
+        }
+
+        public B user(@Nullable String user) {
+            this.user = user;
+            return self();
+        }
+
+        public B parallelToolCalls(@Nullable Boolean parallelToolCalls) {
+            this.parallelToolCalls = parallelToolCalls;
+            return self();
+        }
+
+        public B promptCacheKey(@Nullable String promptCacheKey) {
+            this.promptCacheKey = promptCacheKey;
+            return self();
+        }
+
+        public B sessionId(@Nullable String sessionId) {
+            this.sessionId = sessionId;
+            return self();
+        }
+
+        public B provider(OpenRouterApi.@Nullable ProviderPreferences provider) {
+            this.provider = provider;
+            return self();
+        }
+
+        public B tools(@Nullable List<OpenRouterApi.FunctionTool> tools) {
+            this.tools = tools;
+            return self();
+        }
+
+        public B toolChoice(@Nullable Object toolChoice) {
+            this.toolChoice = toolChoice;
+            return self();
+        }
+
+        /**
+         * 低频字段原样透传到请求体顶层，不做类型建模。
+         */
+        public B extraBody(@Nullable Map<String, Object> extraBody) {
+            this.extraBody = extraBody;
+            return self();
+        }
+
+        @Override
+        public B combineWith(ChatOptions.Builder<?> other) {
+            super.combineWith(other);
+            if (other instanceof AbstractBuilder<?> that) {
+                this.model = that.model != null ? that.model : this.model;
+                this.temperature = that.temperature != null ? that.temperature : this.temperature;
+                this.stream = that.stream != null ? that.stream : this.stream;
+                this.reasoning = that.reasoning != null ? that.reasoning : this.reasoning;
+                this.maxTokens = that.maxTokens != null ? that.maxTokens : this.maxTokens;
+                this.frequencyPenalty = that.frequencyPenalty != null ? that.frequencyPenalty : this.frequencyPenalty;
+                this.presencePenalty = that.presencePenalty != null ? that.presencePenalty : this.presencePenalty;
+                this.topP = that.topP != null ? that.topP : this.topP;
+                this.topK = that.topK != null ? that.topK : this.topK;
+                this.seed = that.seed != null ? that.seed : this.seed;
+                this.minP = that.minP != null ? that.minP : this.minP;
+                this.topA = that.topA != null ? that.topA : this.topA;
+                this.repetitionPenalty = that.repetitionPenalty != null ? that.repetitionPenalty
+                        : this.repetitionPenalty;
+                this.stop = that.stop != null ? that.stop : this.stop;
+                this.topLogprobs = that.topLogprobs != null ? that.topLogprobs : this.topLogprobs;
+                this.logprobs = that.logprobs != null ? that.logprobs : this.logprobs;
+                this.models = that.models != null ? that.models : this.models;
+                this.modalities = that.modalities != null ? that.modalities : this.modalities;
+                this.serviceTier = that.serviceTier != null ? that.serviceTier : this.serviceTier;
+                this.user = that.user != null ? that.user : this.user;
+                this.parallelToolCalls = that.parallelToolCalls != null ? that.parallelToolCalls
+                        : this.parallelToolCalls;
+                this.promptCacheKey = that.promptCacheKey != null ? that.promptCacheKey : this.promptCacheKey;
+                this.sessionId = that.sessionId != null ? that.sessionId : this.sessionId;
+                this.provider = that.provider != null ? that.provider : this.provider;
+                this.toolChoice = that.toolChoice != null ? that.toolChoice : this.toolChoice;
+                if (that.tools != null) {
+                    if (this.tools == null) {
+                        this.tools = new ArrayList<>(that.tools);
+                    }
+                    else {
+                        List<OpenRouterApi.FunctionTool> merged = new ArrayList<>(this.tools);
+                        merged.addAll(that.tools);
+                        this.tools = merged;
+                    }
+                }
+                if (that.extraBody != null) {
+                    if (this.extraBody == null) {
+                        this.extraBody = new HashMap<>(that.extraBody);
+                    }
+                    else {
+                        Map<String, Object> merged = new HashMap<>(this.extraBody);
+                        merged.putAll(that.extraBody);
+                        this.extraBody = merged;
+                    }
+                }
+            }
+            return self();
+        }
+
+        @Override
+        public OpenRouterChatOptions build() {
+            return new OpenRouterChatOptions(this.model, this.temperature, this.stream, this.reasoning, this.maxTokens,
+                    this.frequencyPenalty, this.presencePenalty, this.topP, this.topK, this.seed, this.minP, this.topA,
+                    this.repetitionPenalty, this.stop, this.topLogprobs, this.logprobs, this.models, this.modalities,
+                    this.serviceTier, this.user, this.parallelToolCalls, this.promptCacheKey, this.sessionId,
+                    this.provider, this.tools, this.toolChoice, this.extraBody, this.toolCallbacks, this.toolContext);
+        }
+
+    }
+
 }

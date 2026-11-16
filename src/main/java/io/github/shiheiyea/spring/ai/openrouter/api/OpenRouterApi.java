@@ -20,188 +20,204 @@
 
 package io.github.shiheiyea.spring.ai.openrouter.api;
 
-import com.fasterxml.jackson.annotation.*;
-import org.springframework.ai.model.*;
-import org.springframework.ai.retry.RetryUtils;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.util.Assert;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.ResponseErrorHandler;
-import org.springframework.web.client.RestClient;
-import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
-
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
-/**
- * @author: heiye
- * @date: 2025/11/11 下午10:06
- * @version: v1.0.0
- * @description: openRouter api 设置
- */
+import com.fasterxml.jackson.annotation.JsonAnyGetter;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import org.jspecify.annotations.Nullable;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
+import org.springframework.ai.model.ApiKey;
+import org.springframework.ai.model.ChatModelDescription;
+import org.springframework.ai.model.NoopApiKey;
+import org.springframework.ai.model.SimpleApiKey;
+import org.springframework.ai.retry.RetryUtils;
+import org.springframework.ai.util.JsonHelper;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.util.Assert;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.ResponseErrorHandler;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.reactive.function.client.WebClient;
+
+import io.github.shiheiyea.spring.ai.openrouter.api.common.OpenRouterConstants;
+
 public class OpenRouterApi {
-    /**
-     * 默认模型
-     */
-    public static final ChatModel DEFAULT_CHAT_MODEL;
-    /**
-     * webClient 结束标志
-     */
-    private static final Predicate<String> SSE_DONE_PREDICATE;
-    /**
-     * 通用地址
-     */
+
+    private static final JsonHelper jsonHelper = new JsonHelper();
+
+    public static final ChatModel DEFAULT_CHAT_MODEL = ChatModel.GOOGLE_GEMINI_3_FLASH_PREVIEW;
+
+    private static final Predicate<String> SSE_DONE_PREDICATE = "[DONE]"::equals;
+
     private final String completionsPath;
-    /**
-     * webClient 错误监听
-     */
+
     private final ResponseErrorHandler responseErrorHandler;
 
     private final RestClient restClient;
 
-    /**
-     * 构建 webClient
-     */
     private final WebClient webClient;
 
-    /**
-     * 默认的流式工具调用处理
-     */
-    private OpenRouterStreamFunctionCallingHelper chunkMerger = new OpenRouterStreamFunctionCallingHelper();
+    private final OpenRouterStreamFunctionCallingHelper chunkMerger = new OpenRouterStreamFunctionCallingHelper();
 
-    /**
-     * 构建 Builder
-     *
-     * @return
-     */
     public static Builder builder() {
         return new Builder();
     }
 
-    public OpenRouterApi(ApiKey apiKey, String baseUrl, MultiValueMap<String, String> headers, String completionsPath, ResponseErrorHandler responseErrorHandler, RestClient.Builder restClientBuilder, WebClient.Builder webClientBuilder) {
-        // 断言
-        Assert.hasText(completionsPath, "Completions Path must not be null");
+    /**
+     * 创建调用 OpenRouter 的接口对象。
+     *
+     * 两个 Builder 会先被克隆再设置 baseUrl 与默认请求头，避免污染调用方传入的实例。
+     */
+    public OpenRouterApi(ApiKey apiKey, String baseUrl, MultiValueMap<String, String> headers, String completionsPath,
+            ResponseErrorHandler responseErrorHandler, RestClient.Builder restClientBuilder,
+            WebClient.Builder webClientBuilder) {
+        Assert.notNull(apiKey, "ApiKey must not be null");
+        Assert.hasText(baseUrl, "Base URL must not be null");
         Assert.notNull(headers, "Headers must not be null");
+        Assert.hasText(completionsPath, "Completions Path must not be empty");
+        Assert.notNull(responseErrorHandler, "ResponseErrorHandler must not be null");
+        Assert.notNull(restClientBuilder, "RestClient.Builder must not be null");
+        Assert.notNull(webClientBuilder, "WebClient.Builder must not be null");
         this.completionsPath = completionsPath;
         this.responseErrorHandler = responseErrorHandler;
 
-        // 创建请求头
-        Consumer<HttpHeaders> finalHeaders = (h) -> {
+        // 统一注入鉴权、内容类型与自定义请求头
+        Consumer<HttpHeaders> finalHeaders = (httpHeaders) -> {
             if (!(apiKey instanceof NoopApiKey)) {
-                h.setBearerAuth(apiKey.getValue());
+                httpHeaders.setBearerAuth(apiKey.getValue());
             }
-
-            h.setContentType(MediaType.APPLICATION_JSON);
-            h.addAll(headers);
+            httpHeaders.setContentType(MediaType.APPLICATION_JSON);
+            httpHeaders.addAll(HttpHeaders.readOnlyHttpHeaders(headers));
         };
 
-
-        this.restClient = restClientBuilder.baseUrl(baseUrl)
+        this.restClient = restClientBuilder.clone()
+                .baseUrl(baseUrl)
                 .defaultHeaders(finalHeaders)
                 .defaultStatusHandler(responseErrorHandler)
                 .build();
 
-        this.webClient = webClientBuilder.baseUrl(baseUrl)
-                .defaultHeaders(finalHeaders)
-                .build();
-    }
-
-    public Flux<ChatCompletionChunk> chatCompletionStream(ChatCompletionRequest chatRequest) {
-        return this.chatCompletionStream(chatRequest, new LinkedMultiValueMap());
+        this.webClient = webClientBuilder.clone().baseUrl(baseUrl).defaultHeaders(finalHeaders).build();
     }
 
     /**
-     * 调用 OpenRouter api
-     *
-     * @param chatRequest
-     * @param additionalHttpHeader
-     * @return
+     * 使用已构建好的客户端创建接口对象，供需要自行控制 RestClient / WebClient 的场景使用。
      */
-    public Flux<ChatCompletionChunk> chatCompletionStream(ChatCompletionRequest chatRequest, MultiValueMap<String, String> additionalHttpHeader) {
-        // 创建原子布尔值，用于记录是否需要工具调用
+    public OpenRouterApi(String completionsPath, ResponseErrorHandler responseErrorHandler, RestClient restClient,
+            WebClient webClient) {
+        Assert.hasText(completionsPath, "Completions Path must not be empty");
+        Assert.notNull(responseErrorHandler, "ResponseErrorHandler must not be null");
+        Assert.notNull(restClient, "RestClient must not be null");
+        Assert.notNull(webClient, "WebClient must not be null");
+        this.completionsPath = completionsPath;
+        this.responseErrorHandler = responseErrorHandler;
+        this.restClient = restClient;
+        this.webClient = webClient;
+    }
+
+    public String getCompletionsPath() {
+        return this.completionsPath;
+    }
+
+    public ResponseErrorHandler getResponseErrorHandler() {
+        return this.responseErrorHandler;
+    }
+
+    /**
+     * 非流式调用，返回一次性完整响应。
+     *
+     * 请求体必须显式把 stream 设为 false，否则说明调用方拿错了通路。
+     */
+    public ResponseEntity<ChatCompletion> chatCompletionEntity(ChatCompletionRequest chatRequest) {
+        Assert.notNull(chatRequest, "The request body can not be null.");
+        Assert.isTrue(Boolean.FALSE.equals(chatRequest.stream()), "Request must set the stream property to false.");
+        return this.restClient.post()
+                .uri(this.getEndpoint())
+                .body(chatRequest)
+                .retrieve()
+                .toEntity(ChatCompletion.class);
+    }
+
+    public Flux<ChatCompletionChunk> chatCompletionStream(ChatCompletionRequest chatRequest) {
+        return this.chatCompletionStream(chatRequest, new HttpHeaders());
+    }
+
+    /**
+     * 流式调用，返回逐块响应的数据流。
+     *
+     * 上游按 SSE 逐行输出，遇到 {@code [DONE]} 结束；工具调用期间同一轮次的参数被拆散。
+     * 多个分块里，需要先累积成一个窗口再缝合，否则调用方会拿到半截 JSON。
+     */
+    public Flux<ChatCompletionChunk> chatCompletionStream(ChatCompletionRequest chatRequest,
+            HttpHeaders additionalHttpHeader) {
+        Assert.notNull(chatRequest, "The request body can not be null.");
+        Assert.isTrue(Boolean.TRUE.equals(chatRequest.stream()), "Request must set the stream property to true.");
+
+        // 记录当前是否处于工具调用的参数累积阶段。
         AtomicBoolean isInsideTool = new AtomicBoolean(false);
 
         return this.webClient.post()
-                // 请求地址
-                .uri(this.getEndpoint(chatRequest))
-                // 设置请求头
+                .uri(this.getEndpoint())
                 .headers(headers -> headers.addAll(additionalHttpHeader))
-                // 设置请求体
                 .body(Mono.just(chatRequest), ChatCompletionRequest.class)
-                // 获取响应
                 .retrieve()
-                // 获取响应体
                 .bodyToFlux(String.class)
-                // 到结束标记停止
                 .takeUntil(SSE_DONE_PREDICATE)
-                // 过滤掉结束标记
                 .filter(SSE_DONE_PREDICATE.negate())
-                // 转换为对象
-                .map(content -> ModelOptionsUtils.jsonToObject(content, ChatCompletionChunk.class))
+                .mapNotNull(content -> jsonHelper.fromJson(content, ChatCompletionChunk.class))
                 .map(chunk -> {
-                    // 判断是否需要工具调用
                     if (this.chunkMerger.isStreamingToolFunctionCall(chunk)) {
                         isInsideTool.set(true);
                     }
-
                     return chunk;
                 })
-                // 窗口处理
+                // 工具调用开始后不再切分窗口，直到该次调用收到结束标记。
                 .windowUntil(chunk -> {
-                    // 判断工具调用是否已经全部传输完成
-                    // 如果需要处理，判断为两个，上面判断了需要工具调用 isInsideTool 为 true
-                    // isStreamingToolFunctionCallFinish 会判断 chunk 中是否含有工具调用的字符串
-                    // 只有当 AI 发出“结束标志”（finish_reason: tool_calls）时，这个窗口才会关闭。
-                    // 在这之前，windowUntil 不会关闭窗口会将 chunk 缓存起来
-                    // 也就是说，只要 ai 有调用工具的倾向，windowUntil 就是用来存储 ai 调用的完整请求数据的池子
                     if (isInsideTool.get() && this.chunkMerger.isStreamingToolFunctionCallFinish(chunk)) {
                         isInsideTool.set(false);
                         return true;
-                    } else {
-                        return !isInsideTool.get();
                     }
+                    return !isInsideTool.get();
                 })
-                // 在这里对 windowUntil 池子里的数据进行缝合
                 .concatMapIterable(window -> {
-                    Mono<ChatCompletionChunk> monoChunk = window.reduce(new ChatCompletionChunk(null, null, null, null, null, null, null), (previous, current) -> {
-                        return this.chunkMerger.merge(previous, current);
-                    });
+                    Mono<ChatCompletionChunk> monoChunk = window
+                            .reduce(new ChatCompletionChunk(null, null, null, null, null, null, null, null),
+                                    (previous, current) -> this.chunkMerger.merge(previous, current));
                     return List.of(monoChunk);
                 })
                 .flatMap(mono -> mono);
     }
 
     /**
-     * 获取请求地址
-     *
-     * @param request
-     * @return
+     * OpenRouter 只有一条聊天补全端点，路径在构建期确定，不做运行期重定向。
      */
-    private String getEndpoint(ChatCompletionRequest request) {
-        // 这里可以根据调用的模型参数中是否带有前缀，重定向其他地址
-        // 当前不需要删了
+    private String getEndpoint() {
         return this.completionsPath;
     }
 
-    static {
-        DEFAULT_CHAT_MODEL = ChatModel.GOOGLE_GEMINI_3_FLASH_PREVIEW;
-        SSE_DONE_PREDICATE = "[DONE]"::equals;
-    }
-
     public static enum ChatModel implements ChatModelDescription {
+
         GOOGLE_GEMINI_3_FLASH_PREVIEW("google/gemini-3-flash-preview"),
+
         GOOGLE_GEMINI_3_1_PRO_PREVIEW("google/gemini-3.1-pro-preview");
 
         public final String value;
 
-        private ChatModel(String value) {
+        ChatModel(String value) {
             this.value = value;
         }
 
@@ -213,22 +229,27 @@ public class OpenRouterApi {
         public String getName() {
             return this.value;
         }
+
     }
 
     public static class Builder {
-        private String baseUrl = "https://openrouter.ai";
-        private ApiKey apiKey;
-        private MultiValueMap<String, String> headers = new LinkedMultiValueMap<>();
-        private String completionsPath = "/api/v1/chat/completions";
-        private RestClient.Builder restClientBuilder = RestClient.builder();
-        private WebClient.Builder webClientBuilder = WebClient.builder();
-        private ResponseErrorHandler responseErrorHandler;
 
-        public Builder() {
-            this.responseErrorHandler = RetryUtils.DEFAULT_RESPONSE_ERROR_HANDLER;
-        }
+        private String baseUrl = OpenRouterConstants.DEFAULT_BASE_URL;
+
+        private ApiKey apiKey;
+
+        private MultiValueMap<String, String> headers = new LinkedMultiValueMap<>();
+
+        private String completionsPath = OpenRouterConstants.DEFAULT_COMPLETIONS_PATH;
+
+        private RestClient.Builder restClientBuilder = RestClient.builder();
+
+        private WebClient.Builder webClientBuilder = WebClient.builder();
+
+        private ResponseErrorHandler responseErrorHandler = RetryUtils.DEFAULT_RESPONSE_ERROR_HANDLER;
 
         public Builder baseUrl(String baseUrl) {
+            Assert.hasText(baseUrl, "Base URL must not be empty");
             this.baseUrl = baseUrl;
             return this;
         }
@@ -240,277 +261,432 @@ public class OpenRouterApi {
         }
 
         public Builder apiKey(String simpleApiKey) {
-            Assert.notNull(simpleApiKey, "simpleApiKey cannot be null");
+            Assert.hasText(simpleApiKey, "simpleApiKey cannot be empty");
             this.apiKey = new SimpleApiKey(simpleApiKey);
             return this;
         }
 
         public Builder headers(MultiValueMap<String, String> headers) {
+            Assert.notNull(headers, "Headers must not be null");
             this.headers = headers;
             return this;
         }
 
+        /**
+         * 追加单个请求头，多用于 OpenRouter 的应用归属头。
+         */
+        public Builder header(String name, String value) {
+            Assert.hasText(name, "Header name must not be empty");
+            this.headers.add(name, value);
+            return this;
+        }
+
         public Builder completionsPath(String completionsPath) {
+            Assert.hasText(completionsPath, "Completions Path must not be empty");
             this.completionsPath = completionsPath;
             return this;
         }
 
         public Builder restClientBuilder(RestClient.Builder restClientBuilder) {
+            Assert.notNull(restClientBuilder, "RestClient.Builder must not be null");
             this.restClientBuilder = restClientBuilder;
             return this;
         }
 
         public Builder webClientBuilder(WebClient.Builder webClientBuilder) {
+            Assert.notNull(webClientBuilder, "WebClient.Builder must not be null");
             this.webClientBuilder = webClientBuilder;
             return this;
         }
 
         public Builder responseErrorHandler(ResponseErrorHandler responseErrorHandler) {
+            Assert.notNull(responseErrorHandler, "ResponseErrorHandler must not be null");
             this.responseErrorHandler = responseErrorHandler;
             return this;
         }
 
         public OpenRouterApi build() {
-
-            if (this.apiKey == null) {
-                new Throwable("OpenRouterApi.Builder.build() called with null apiKey - 调用栈：").printStackTrace();
-            }
             Assert.notNull(this.apiKey, "apiKey must be set");
-            return new OpenRouterApi(this.apiKey, this.baseUrl, this.headers, this.completionsPath, this.responseErrorHandler, this.restClientBuilder, this.webClientBuilder);
+            return new OpenRouterApi(this.apiKey, this.baseUrl, this.headers, this.completionsPath,
+                    this.responseErrorHandler, this.restClientBuilder, this.webClientBuilder);
         }
+
     }
 
     /**
-     * OpenRouterRequest 请求记录类
+     * 一次聊天补全请求。
      *
-     * @param messages
-     * @param prompt
-     * @param model
-     * @param responseFormat
-     * @param stop
-     * @param stream
-     * @param maxTokens
-     * @param temperature
-     * @param seed
-     * @param topP
-     * @param topK
-     * @param frequencyPenalty
-     * @param presencePenalty
-     * @param repetitionPenalty
-     * @param logitBias
-     * @param topLogprobs
-     * @param minP
-     * @param topA
-     * @param transforms
-     * @param models
+     * 请求体字段分三类：模型层组装 {@code messages} / {@code stream} / {@code tools} /
+     * {@code response_format}，5 个高频强类型字段，以及由 {@link #extraBody} 承载的
+     * 12 个低频字段。{@code extraBody} 通过 {@code @JsonAnyGetter} 展平到请求体顶层，
+     * 所以序列化结果里不会出现 {@code extra_body} 这个包裹层。
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record ChatCompletionRequest(
-            // 聊天消息
-            @JsonProperty("messages")
-            List<ChatCompletionMessage> messages,
+    public record ChatCompletionRequest(@JsonProperty("messages") List<ChatCompletionMessage> messages,
 
-            // 提示词
-            @JsonProperty("prompt")
-            String prompt,
+            @JsonProperty("stream") Boolean stream,
 
-            // 模型名称
-            @JsonProperty("model")
-            String model,
+            @JsonProperty("tools") List<FunctionTool> tools,
 
-            // 结构化输出响应格式
-            @JsonProperty("response_format")
-            Object responseFormat,
+            @Deprecated(since = "2.0.0", forRemoval = true) @JsonProperty("response_format") Object responseFormat,
 
-            // 如果模型遇到停止数组中指定的任何标记，则立即停止生成。
-            @JsonProperty("stop")
-            List<String> stop,
+            @JsonProperty("model") String model,
 
-            // 是否流式返回结果
-            @JsonProperty("stream")
-            Boolean stream,
+            @JsonProperty("max_completion_tokens") Integer maxTokens,
 
-            // 这设置了模型可以生成的标记数量的上限。
-            // 它不会产生超过此限制的数量。
-            // 最大值是上下文长度减去提示长度。
-            // Range: [1, context_length)
-            @JsonProperty("max_tokens")
-            Integer maxTokens,
+            @JsonProperty("temperature") Double temperature,
 
-            // 此设置会影响模型响应的多样性。较低的值会导致更可预测和典型的响应，
-            // 而较高的值则鼓励更多样化和不太常见的响应。
-            // 在 0 时，模型始终对给定输入给出相同的响应。
-            // Range: [0, 2]
-            @JsonProperty("temperature")
-            Double temperature,
+            @JsonProperty("top_p") Double topP,
 
-            // 如果指定，推理将确定性地采样，
-            // 以便具有相同种子和参数的重复请求应返回相同的结果。
-            // 某些模型不能保证确定性。
-            // Integer only
-            @JsonProperty("seed")
-            Integer seed,
+            @JsonProperty("top_k") Integer topK,
 
-            // 此设置将模型的选择限制为可能标记的百分比：只有概率加起来为 P 的顶级标记。
-            // 较低的值使模型的响应更可预测，而默认设置允许全方位的标记选择。
-            // 把它想象成一个动态的 Top-K。
-            // Range: (0, 1]
-            @JsonProperty("top_p")
-            Double topP,
+            @JsonProperty("frequency_penalty") Double frequencyPenalty,
 
-            // 这限制了模型在每个步骤中对标记的选择，使其从较小的集合中进行选择。
-            // 值为 1 表示模型将始终选择最有可能的下一个标记，从而产生可预测的结果。
-            // 默认情况下，此设置处于禁用状态，使模型考虑所有选择。
-            // Range: [1, Infinity) Not available for OpenAI models
-            @JsonProperty("top_k")
-            Integer topK,
+            @JsonProperty("presence_penalty") Double presencePenalty,
 
-            // 此设置旨在根据标记在输入中出现的频率来控制标记的重复。
-            // 它尝试降低使用那些在输入中出现较多的标记，与它们出现的频率成正比。
-            // 令牌惩罚随出现次数而增加。负值将鼓励 token 重用。
-            // Range: [-2, 2]
-            @JsonProperty("frequency_penalty")
-            Double frequencyPenalty,
+            @JsonProperty("repetition_penalty") Double repetitionPenalty,
 
-            // 调整模型重复输入中已使用的特定标记的频率。
-            // 较高的值使这种重复的可能性降低，而负值则相反。
-            // 令牌惩罚不会随出现次数而变化。负值将鼓励代币重用。
-            // Range: [-2, 2]
-            @JsonProperty("presence_penalty")
-            Double presencePenalty,
+            @JsonProperty("seed") Integer seed,
 
-            // 有助于减少输入中标记的重复。较高的值使模型不太可能重复标记，
-            // 但过高的值会使输出的连贯性降低（通常使用缺少小单词的连续句子）。
-            // token 惩罚根据原始 token 的概率进行缩放。
-            // Range: (0, 2]
-            @JsonProperty("repetition_penalty")
-            Double repetitionPenalty,
+            @JsonProperty("min_p") Double minP,
 
-            // 接受一个 JSON 对象，该对象将令牌（由分词器中的令牌 ID 指定）映射到 -100 到 100 之间的关联偏差值。
-            // 从数学上讲，偏差在采样之前被添加到模型生成的 logit 中。
-            // 确切的效果因模型而异，但值介于 -1 和 1 之间应降低或增加选择的可能性;
-            // 像 -100 或 100 这样的值应该会导致相关令牌被禁止或独占选择。
-            // Range: [0, 1]
-            @JsonProperty("logit_bias")
-            Map<Integer, Integer> logitBias,
+            @JsonProperty("top_a") Double topA,
 
-            // 一个介于 0 和 20 之间的整数，指定在每个标记位置最有可能返回的标记数，每个标记都有关联的对数概率。
-            // 如果使用此参数，则必须将 logprobs 设置为 true。
-            // Integer only
-            @JsonProperty("top_logprobs")
-            Integer topLogprobs,
+            @JsonProperty("stop") List<String> stop,
 
-            // 表示相对于最可能令牌的概率，考虑令牌的最小概率。
-            // 该值根据最可能令牌的置信度而变化。如果您的 Min-P 设置为 0.1，
-            // 则意味着它只允许至少是最佳选项的 1/10 的 token 。
-            // Range: [0, 1]
-            @JsonProperty("min_p")
-            Double minP,
+            @JsonProperty("logit_bias") Map<String, Number> logitBias,
 
-            // 根据最有可能的代币的概率，仅考虑具有“足够高”概率的顶级代币。可以把它想象成一个动态的 Top-P。
-            // 较低的 Top-A 值会根据最高概率标记集中选择，但范围更窄。
-            // 较高的 Top-A 值不一定会影响输出的创造力，而是根据最大概率细化过滤过程。
-            // Range: [0, 1]
-            @JsonProperty("top_a")
-            Double topA,
+            @JsonProperty("top_logprobs") Integer topLogprobs,
 
-            // 这对于不需要完美回忆的情况很有用。
-            // 转换的工作原理是从提示中间删除或截断消息，直到提示适合模型的上下文窗口。
-            @JsonProperty("transforms")
-            List<String> transforms,
+            @JsonProperty("logprobs") Boolean logprobs,
 
-            // 允许您在主模型的提供程序关闭、速率受限或由于内容审核而拒绝回复时自动尝试其他模型。
-            @JsonProperty("models")
-            List<String> models,
+            @JsonProperty("models") List<String> models,
 
-            // 深度思考对象字段
-            @JsonProperty("reasoning")
-            Think reasoning,
+            @JsonProperty("modalities") List<String> modalities,
 
-            @JsonProperty("tools")
-            List<FunctionTool> tools,
+            @JsonProperty("service_tier") String serviceTier,
 
-            @JsonProperty("tool_choice")
-            Object toolChoice) {
-        public ChatCompletionRequest(List<ChatCompletionMessage> messages, String model, Boolean stream, Double temperature) {
-            this(messages, null, model, null, null, stream, null, temperature, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
-        }
+            @JsonProperty("user") String user,
+
+            @JsonProperty("parallel_tool_calls") Boolean parallelToolCalls,
+
+            @JsonProperty("prompt_cache_key") String promptCacheKey,
+
+            @JsonProperty("session_id") String sessionId,
+
+            @JsonProperty("provider") ProviderPreferences provider,
+
+            @JsonProperty("reasoning") Reasoning reasoning,
+
+            @JsonProperty("tool_choice") Object toolChoice,
+
+            @JsonIgnore Map<String, Object> extraBody) {
 
         public ChatCompletionRequest(List<ChatCompletionMessage> messages, Boolean stream) {
-            this(messages, null, null, null, null, stream, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+            this(messages, stream, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                    null, null, null, null, null, null, null, null, null, null, null, null, null, null);
         }
 
-        public ChatCompletionRequest(@JsonProperty("messages") List<ChatCompletionMessage> messages, @JsonProperty("prompt") String prompt, @JsonProperty("model") String model, @JsonProperty("response_format") Object responseFormat, @JsonProperty("stop") List<String> stop, @JsonProperty("stream") Boolean stream, @JsonProperty("max_tokens") Integer maxTokens, @JsonProperty("temperature") Double temperature, @JsonProperty("seed") Integer seed, @JsonProperty("top_p") Double topP, @JsonProperty("top_k") Integer topK, @JsonProperty("frequency_penalty") Double frequencyPenalty, @JsonProperty("presence_penalty") Double presencePenalty, @JsonProperty("repetition_penalty") Double repetitionPenalty, @JsonProperty("logit_bias") Map<Integer, Integer> logitBias, @JsonProperty("top_logprobs") Integer topLogprobs, @JsonProperty("min_p") Double minP, @JsonProperty("top_a") Double topA, @JsonProperty("transforms") List<String> transforms, @JsonProperty("models") List<String> models, @JsonProperty("reasoning") Think reasoning, @JsonProperty("tools") List<FunctionTool> tools, @JsonProperty("tool_choice") Object toolChoice) {
-            this.messages = messages;
-            this.prompt = prompt;
-            this.model = model;
-            this.responseFormat = responseFormat;
-            this.stop = stop;
-            this.stream = stream;
-            this.maxTokens = maxTokens;
-            this.temperature = temperature;
-            this.seed = seed;
-            this.topP = topP;
-            this.topK = topK;
-            this.frequencyPenalty = frequencyPenalty;
-            this.presencePenalty = presencePenalty;
-            this.repetitionPenalty = repetitionPenalty;
-            this.logitBias = logitBias;
-            this.topLogprobs = topLogprobs;
-            this.minP = minP;
-            this.topA = topA;
-            this.transforms = transforms;
-            this.models = models;
-            this.reasoning = reasoning;
-            this.tools = tools;
-            this.toolChoice = toolChoice;
+        public ChatCompletionRequest(List<ChatCompletionMessage> messages, String model, Double temperature) {
+            this(messages, null, null, null, model, null, temperature, null, null, null, null, null, null, null, null,
+                    null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        }
+
+        /**
+         * 把低频字段展平到请求体顶层，这是 OpenRouter 侧接收 extraBody 字段的落地点。
+         */
+        @JsonAnyGetter
+        public Map<String, Object> extraBodyProperties() {
+            return this.extraBody == null ? Map.of() : this.extraBody;
         }
 
         public static class ToolChoiceBuilder {
+
             public static final String AUTO = "auto";
+
             public static final String NONE = "none";
 
-            public ToolChoiceBuilder() {
-            }
+            public static final String REQUIRED = "required";
 
+            /**
+             * 指定调用某个具名函数，对应 OpenRouter 的 {@code ChatNamedToolChoice}。
+             */
             public static Object FUNCTION(String functionName) {
                 return Map.of("type", "function", "function", Map.of("name", functionName));
             }
+
         }
+
     }
 
+    /**
+     * 路由偏好。OpenRouter 会把请求分发给上百家上游，这一组字段决定挑哪一家。
+     */
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record Think(
-            // 分配多少 token 用于推理
-            @JsonProperty("effort") Effort effort,
-            // 推理的 token 数量
+    public record ProviderPreferences(@JsonProperty("allow_fallbacks") Boolean allowFallbacks,
+
+            @JsonProperty("data_collection") DataCollection dataCollection,
+
+            @JsonProperty("enforce_distillable_text") Boolean enforceDistillableText,
+
+            @JsonProperty("ignore") List<String> ignore,
+
+            @JsonProperty("max_price") MaxPrice maxPrice,
+
+            @JsonProperty("only") List<String> only,
+
+            @JsonProperty("options") Map<String, Map<String, Object>> options,
+
+            @JsonProperty("order") List<String> order,
+
+            @JsonProperty("preferred_max_latency") Object preferredMaxLatency,
+
+            @JsonProperty("preferred_min_throughput") Object preferredMinThroughput,
+
+            @JsonProperty("quantizations") List<Quantization> quantizations,
+
+            @JsonProperty("require_parameters") Boolean requireParameters,
+
+            @JsonProperty("sort") Object sort,
+
+            @JsonProperty("zdr") Boolean zdr) {
+
+        public enum DataCollection {
+
+            @JsonProperty("deny")
+            DENY,
+
+            @JsonProperty("allow")
+            ALLOW
+
+        }
+
+        public enum Quantization {
+
+            @JsonProperty("int4")
+            INT4,
+
+            @JsonProperty("int8")
+            INT8,
+
+            @JsonProperty("fp4")
+            FP4,
+
+            @JsonProperty("mxfp4")
+            MXFP4,
+
+            @JsonProperty("nvfp4")
+            NVFP4,
+
+            @JsonProperty("fp6")
+            FP6,
+
+            @JsonProperty("fp8")
+            FP8,
+
+            @JsonProperty("mxfp8")
+            MXFP8,
+
+            @JsonProperty("fp16")
+            FP16,
+
+            @JsonProperty("bf16")
+            BF16,
+
+            @JsonProperty("fp32")
+            FP32,
+
+            @JsonProperty("unknown")
+            UNKNOWN;
+
+            /**
+             * 规范对该枚举标注了允许未知取值，认不出的量化方式按 null 处理而不是抛错。
+             */
+            @JsonCreator
+            public static Quantization fromString(@Nullable String value) {
+                if (value == null) {
+                    return null;
+                }
+                for (Quantization quantization : values()) {
+                    if (quantization.name().equalsIgnoreCase(value)) {
+                        return quantization;
+                    }
+                }
+                return null;
+            }
+
+        }
+
+        /**
+         * 价格上限，单位是每百万 token 的美元。规范里五个子项都声明为字符串，这里照抄不做数值化。
+         */
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        public record MaxPrice(@JsonProperty("prompt") String prompt, @JsonProperty("completion") String completion,
+                @JsonProperty("request") String request, @JsonProperty("image") String image,
+                @JsonProperty("audio") String audio) {
+        }
+
+        public enum Sort {
+
+            @JsonProperty("price")
+            PRICE,
+
+            @JsonProperty("throughput")
+            THROUGHPUT,
+
+            @JsonProperty("latency")
+            LATENCY,
+
+            @JsonProperty("exacto")
+            EXACTO
+
+        }
+
+        /**
+         * 带分区的排序配置，分区为 model 时回退模型仍留在回退位置，为 none 时所有端点一起排序。
+         */
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        public record SortConfig(@JsonProperty("by") Sort by, @JsonProperty("partition") Partition partition) {
+
+            public enum Partition {
+
+                @JsonProperty("model")
+                MODEL,
+
+                @JsonProperty("none")
+                NONE
+
+            }
+
+        }
+
+        /**
+         * 延迟百分位上限，秒。
+         */
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        public record PercentileLatencyCutoffs(@JsonProperty("p50") Double p50, @JsonProperty("p75") Double p75,
+                @JsonProperty("p90") Double p90, @JsonProperty("p99") Double p99) {
+        }
+
+        /**
+         * 吞吐百分位下限，token 每秒。
+         */
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        public record PercentileThroughputCutoffs(@JsonProperty("p50") Double p50, @JsonProperty("p75") Double p75,
+                @JsonProperty("p90") Double p90, @JsonProperty("p99") Double p99) {
+        }
+
+    }
+
+    /**
+     * 推理配置。与顶层 {@code reasoning_effort} 互斥，本模块只保留这一处入口。
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record Reasoning(@JsonProperty("effort") Effort effort,
+
             @JsonProperty("max_tokens") Integer maxTokens,
-            // 是否排除推理结果
-            @JsonProperty("exclude") Boolean exclude,
-            // 是否启用推理
-            @JsonProperty("enabled") Boolean enabled) {
 
-        public Think(@JsonProperty("effort") Effort effort, Integer maxTokens, Boolean exclude, Boolean enabled) {
-            this.effort = effort;
-            this.maxTokens = maxTokens;
-            this.exclude = exclude;
-            this.enabled = enabled;
+            @JsonProperty("exclude") Boolean exclude,
+
+            @JsonProperty("enabled") Boolean enabled,
+
+            @JsonProperty("summary") Summary summary,
+
+            @JsonProperty("mode") Mode mode,
+
+            @JsonProperty("context") Context context) {
+
+        public enum Effort {
+
+            @JsonProperty("max")
+            MAX,
+
+            @JsonProperty("xhigh")
+            XHIGH,
+
+            @JsonProperty("high")
+            HIGH,
+
+            @JsonProperty("medium")
+            MEDIUM,
+
+            @JsonProperty("low")
+            LOW,
+
+            @JsonProperty("minimal")
+            MINIMAL,
+
+            @JsonProperty("none")
+            NONE;
+
+            /**
+             * 规范允许上游扩展取值，认不出时按 null 处理。
+             */
+            @JsonCreator
+            public static Effort fromString(@Nullable String value) {
+                if (value == null) {
+                    return null;
+                }
+                for (Effort effort : values()) {
+                    if (effort.name().equalsIgnoreCase(value)) {
+                        return effort;
+                    }
+                }
+                return null;
+            }
+
         }
+
+        public enum Summary {
+
+            @JsonProperty("auto")
+            AUTO,
+
+            @JsonProperty("concise")
+            CONCISE,
+
+            @JsonProperty("detailed")
+            DETAILED
+
+        }
+
+        public enum Mode {
+
+            @JsonProperty("standard")
+            STANDARD,
+
+            @JsonProperty("pro")
+            PRO
+
+        }
+
+        public enum Context {
+
+            @JsonProperty("auto")
+            AUTO,
+
+            @JsonProperty("all_turns")
+            ALL_TURNS,
+
+            @JsonProperty("current_turn")
+            CURRENT_TURN
+
+        }
+
     }
 
-    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class FunctionTool {
+
         @JsonProperty("type")
-        private Type type;
+        private Type type = Type.FUNCTION;
+
         @JsonProperty("function")
         private Function function;
 
         public FunctionTool() {
-            this.type = Type.FUNCTION;
         }
 
         public FunctionTool(Type type, Function function) {
-            this.type = Type.FUNCTION;
             this.type = type;
             this.function = function;
         }
@@ -523,613 +699,569 @@ public class OpenRouterApi {
             return this.type;
         }
 
-        public Function getFunction() {
-            return this.function;
-        }
-
         public void setType(Type type) {
             this.type = type;
+        }
+
+        public Function getFunction() {
+            return this.function;
         }
 
         public void setFunction(Function function) {
             this.function = function;
         }
 
-        public static enum Type {
-            @JsonProperty("function")
-            FUNCTION;
+        public enum Type {
 
-            private Type() {
-            }
+            @JsonProperty("function")
+            FUNCTION
+
         }
 
         @JsonInclude(JsonInclude.Include.NON_NULL)
         public static class Function {
-            // 函数名称
+
             @JsonProperty("name")
             private String name;
-            // 函数描述
+
             @JsonProperty("description")
             private String description;
-            // 函数参数
+
             @JsonProperty("parameters")
             private Map<String, Object> parameters;
-            // 在 DeepSeekApi 中，还有 strict 字段。但 openrouter 没有该参数
+
+            @JsonProperty("strict")
+            private Boolean strict;
+
             @JsonIgnore
             private String jsonSchema;
 
-            private Function() {
+            public Function() {
             }
 
             public Function(String name, String description, Map<String, Object> parameters) {
-                this.description = description;
                 this.name = name;
+                this.description = description;
                 this.parameters = parameters;
             }
 
+            /**
+             * 用 JSON Schema 字符串描述参数，模型层解析工具定义时走这条路径。
+             */
             public Function(String name, String description, String jsonSchema) {
-                this(description, name, ModelOptionsUtils.jsonToMap(jsonSchema));
-            }
-
-            public String getDescription() {
-                return this.description;
+                this.name = name;
+                this.description = description;
+                this.jsonSchema = jsonSchema;
+                this.parameters = jsonHelper.fromJsonToMap(jsonSchema);
             }
 
             public String getName() {
                 return this.name;
             }
 
-            public Map<String, Object> getParameters() {
-                return this.parameters;
+            public void setName(String name) {
+                this.name = name;
+            }
+
+            public String getDescription() {
+                return this.description;
             }
 
             public void setDescription(String description) {
                 this.description = description;
             }
 
-            public void setName(String name) {
-                this.name = name;
+            public Map<String, Object> getParameters() {
+                return this.parameters;
             }
 
             public void setParameters(Map<String, Object> parameters) {
                 this.parameters = parameters;
             }
 
+            public Boolean getStrict() {
+                return this.strict;
+            }
+
+            public void setStrict(Boolean strict) {
+                this.strict = strict;
+            }
+
+            public String getJsonSchema() {
+                return this.jsonSchema;
+            }
+
+            /**
+             * 设置 JSON Schema 字符串的同时同步解析出的参数表，避免两个字段各说各话。
+             */
             public void setJsonSchema(String jsonSchema) {
                 this.jsonSchema = jsonSchema;
                 if (jsonSchema != null) {
-                    this.parameters = ModelOptionsUtils.jsonToMap(jsonSchema);
+                    this.parameters = jsonHelper.fromJsonToMap(jsonSchema);
                 }
-
             }
+
         }
+
     }
 
     /**
-     * 调用 openrount 返回响应数据
-     */
-    public record ChatCompletionChunk(
-            @JsonProperty("id") String id,
-            // AI 响应数据
-            @JsonProperty("choices") List<Choice> choices,
-            @JsonProperty("created") Long created,
-            @JsonProperty("model") String model,
-
-            @JsonProperty("object") String object,
-            // 当提供商支持时才返回
-
-            @JsonProperty("system_fingerprint") String systemFingerprint,
-            // 对于非流式处理，始终返回使用情况数据。
-            // 流式传输时，您将在末尾获得一个使用对象，
-            // 并附有一个空的选择数组
-            @JsonProperty("usage") Usage usage
-    ) {
-        /**
-         * 调用 openrount 主要响应数据
-         */
-        public record Choice(
-
-                @JsonProperty("index") Long index,
-
-                // 模型生成的delta。存储 AI 的消息和推理过程
-                @JsonProperty("delta") ChatCompletionMessage delta,
-
-                // 模型生成文本的完成原因。
-                @JsonProperty("finish_reason") ChatCompletionFinishReason finishReason,
-
-                // 模型生成文本的完成原因。
-                // 有些模型不会提供 openrount 中 finishReason 里存在的字段，而是会用别的字段
-                @JsonProperty("native_finish_reason") ChatCompletionFinishReason nativeFinishReason
-        ) {
-        }
-    }
-
-    /**
-     * 记录 token 消耗
-     */
-    public record Usage(
-            //  如果有图片和工具，则包含在内
-            @JsonProperty("prompt_tokens") Integer promptTokens,
-            // 生成的令牌
-            @JsonProperty("completion_tokens") Integer completionTokens,
-            // 上述两个字段的和
-            @JsonProperty("total_tokens") Integer totalTokens
-    ) {
-    }
-
-    /**
-     * 聊天消息
+     * 一条聊天消息，请求与响应共用。
      *
-     * @param rawContent
-     * @param role
-     * @param name
-     * @param toolCallId
-     * @param toolCalls
-     * @param reasoning
-     * @param reasoningDetails
+     * 请求，{@code content} 可能是纯字符串，也可能是多模态内容部件数组；响应侧还额外带回
+     * 推理文本、推理详情与生成的图片、音频。
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    @JsonIgnoreProperties(
-            ignoreUnknown = true
-    )
-    public static record ChatCompletionMessage(Object rawContent, Role role, String name, String toolCallId,
-                                               List<ToolCall> toolCalls, String reasoning,
-                                               List<ReasoningDetail> reasoningDetails) {
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ChatCompletionMessage(@JsonProperty("content") Object rawContent,
+
+            @JsonProperty("role") Role role,
+
+            @JsonProperty("name") String name,
+
+            @JsonProperty("tool_call_id") String toolCallId,
+
+            @JsonProperty("tool_calls") @JsonFormat(with = JsonFormat.Feature.ACCEPT_SINGLE_VALUE_AS_ARRAY) List<ToolCall> toolCalls,
+
+            @JsonProperty("reasoning") String reasoning,
+
+            @JsonProperty("reasoning_details") List<ReasoningDetail> reasoningDetails,
+
+            @JsonProperty("images") List<ChatAssistantImage> images,
+
+            @JsonProperty("audio") ChatAudioOutput audio) {
+
         public ChatCompletionMessage(Object content, Role role) {
-            this(content, role, null, null, null, null, null);
+            this(content, role, null, null, null, null, null, null, null);
         }
 
-        public ChatCompletionMessage(Object content, Role role, String name, String toolCallId, List<ToolCall> toolCalls) {
-            this(content, role, name, toolCallId, toolCalls, null, null);
+        public ChatCompletionMessage(Object content, Role role, String name, String toolCallId,
+                List<ToolCall> toolCalls) {
+            this(content, role, name, toolCallId, toolCalls, null, null, null, null);
         }
 
-        public ChatCompletionMessage(@JsonProperty("content") Object rawContent, @JsonProperty("role") Role role, @JsonProperty("name") String name, @JsonProperty("tool_call_id") String toolCallId, @JsonProperty("tool_calls") @JsonFormat(with = {JsonFormat.Feature.ACCEPT_SINGLE_VALUE_AS_ARRAY}) List<ToolCall> toolCalls, @JsonProperty("reasoning") String reasoning, @JsonProperty("reasoning_details") List<ReasoningDetail> reasoningDetails) {
-            this.rawContent = rawContent;
-            this.role = role;
-            this.name = name;
-            this.toolCallId = toolCallId;
-            this.toolCalls = toolCalls;
-            this.reasoning = reasoning;
-            this.reasoningDetails = reasoningDetails;
-        }
-
+        /**
+         * 取纯文本内容。多模态请求的 content 是内容部件数组，此处不做拼接。
+         */
         public String content() {
             if (this.rawContent == null) {
                 return null;
-            } else {
-                Object var2 = this.rawContent;
-                if (var2 instanceof String) {
-                    String text = (String) var2;
-                    return text;
-                } else {
-                    throw new IllegalStateException("The content is not a string!");
-                }
             }
+            if (this.rawContent instanceof String text) {
+                return text;
+            }
+            throw new IllegalStateException("The content is not a string!");
         }
 
-        // 聊天内容
-        @JsonProperty("content")
-        public Object rawContent() {
-            return this.rawContent;
-        }
+        public enum Role {
 
-        // 角色
-        @JsonProperty("role")
-        public Role role() {
-            return this.role;
-        }
-
-        @JsonProperty("name")
-        public String name() {
-            return this.name;
-        }
-
-        // 工具调用 id
-        @JsonProperty("tool_call_id")
-        public String toolCallId() {
-            return this.toolCallId;
-        }
-
-        // 工具调用
-        @JsonProperty("tool_calls")
-        @JsonFormat(
-                with = {JsonFormat.Feature.ACCEPT_SINGLE_VALUE_AS_ARRAY}
-        )
-        public List<ToolCall> toolCalls() {
-            return this.toolCalls;
-        }
-
-        // 深度思考推理过程
-        @JsonProperty("reasoning")
-        public String reasoning() {
-            return this.reasoning;
-        }
-
-        // 推理过程详情
-        @JsonProperty("reasoning_details")
-        public List<ReasoningDetail> reasoningDetails() {
-            return this.reasoningDetails;
-        }
-
-        public static enum Role {
-            // 系统角色
             @JsonProperty("system")
             SYSTEM,
-            // 用户角色
+
             @JsonProperty("user")
             USER,
-            // 助手角色
+
             @JsonProperty("assistant")
             ASSISTANT,
-            // 工具角色
-            @JsonProperty("tool")
-            TOOL;
 
-            private Role() {
+            @JsonProperty("tool")
+            TOOL
+
+        }
+
+    }
+
+    /**
+     * 请求侧内容部件，一条部件的 type 决定哪个字段有效。
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record TextContent(@JsonProperty("type") MessageType type, @JsonProperty("text") String text) {
+
+        public TextContent(String text) {
+            this(MessageType.TEXT, text);
+        }
+
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record ImageContent(@JsonProperty("type") MessageType type,
+            @JsonProperty("image_url") ImageUrl imageUrl) {
+
+        public ImageContent(ImageUrl imageUrl) {
+            this(MessageType.IMAGE_URL, imageUrl);
+        }
+
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record AudioContent(@JsonProperty("type") MessageType type,
+            @JsonProperty("input_audio") InputAudio inputAudio) {
+
+        public AudioContent(InputAudio inputAudio) {
+            this(MessageType.INPUT_AUDIO, inputAudio);
+        }
+
+    }
+
+    /**
+     * 图片引用，detail 可取 auto / low / high / original，其中 original 是 OpenRouter 扩展值。
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record ImageUrl(@JsonProperty("url") String url, @JsonProperty("detail") String detail) {
+
+        public ImageUrl(String url) {
+            this(url, null);
+        }
+
+    }
+
+    /**
+     * Base64 编码的音频数据与格式，格式取值随上游 provider 而异。
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record InputAudio(@JsonProperty("data") String data, @JsonProperty("format") String format) {
+    }
+
+    public enum MessageType {
+
+        @JsonProperty("text")
+        TEXT,
+
+        @JsonProperty("image_url")
+        IMAGE_URL,
+
+        @JsonProperty("input_audio")
+        INPUT_AUDIO
+
+    }
+
+    /**
+     * 生成完成的图片，url 可能是远程地址也可能是 data URL。
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record ChatAssistantImage(@JsonProperty("image_url") ImageUrl imageUrl) {
+    }
+
+    /**
+     * 生成的音频，data 是 Base64 内容，transcript 是配套文字稿。
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record ChatAudioOutput(@JsonProperty("data") String data, @JsonProperty("expires_at") Long expiresAt,
+            @JsonProperty("id") String id, @JsonProperty("transcript") String transcript) {
+    }
+
+    /**
+     * 推理详情。四种变体共用一个结构，由 type 区分有效字段，回传上游时需要原样带回。
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ReasoningDetail(@JsonProperty("type") ReasoningDetailType type,
+
+            @JsonProperty("id") String id,
+
+            @JsonProperty("index") Integer index,
+
+            @JsonProperty("format") String format,
+
+            @JsonProperty("text") String text,
+
+            @JsonProperty("summary") String summary,
+
+            @JsonProperty("data") String data,
+
+            @JsonProperty("signature") String signature,
+
+            @JsonProperty("arguments") String arguments,
+
+            @JsonProperty("result") String result,
+
+            @JsonProperty("tool_call_id") String toolCallId,
+
+            @JsonProperty("tool_name") String toolName) {
+
+        public enum ReasoningDetailType {
+
+            @JsonProperty("reasoning.text")
+            TEXT,
+
+            @JsonProperty("reasoning.summary")
+            SUMMARY,
+
+            @JsonProperty("reasoning.encrypted")
+            ENCRYPTED,
+
+            @JsonProperty("reasoning.server_tool_call")
+            SERVER_TOOL_CALL;
+
+            /**
+             * 规范允许上游新增推理详情类型，认不出时按 null 处理而不是拒绝整条响应。
+             */
+            @JsonCreator
+            public static ReasoningDetailType fromString(@Nullable String value) {
+                if (value == null) {
+                    return null;
+                }
+                for (ReasoningDetailType type : values()) {
+                    if (type.getValue().equalsIgnoreCase(value)) {
+                        return type;
+                    }
+                }
+                return null;
             }
+
+            public String getValue() {
+                return switch (this) {
+                    case TEXT -> "reasoning.text";
+                    case SUMMARY -> "reasoning.summary";
+                    case ENCRYPTED -> "reasoning.encrypted";
+                    case SERVER_TOOL_CALL -> "reasoning.server_tool_call";
+                };
+            }
+
+        }
+
+    }
+
+    /**
+     * 流式分块。上游出错时会在流里回一条带 error 的分块，而不是抛，HTTP 错误。
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ChatCompletionChunk(@JsonProperty("id") String id,
+
+            @JsonProperty("choices") List<ChunkChoice> choices,
+
+            @JsonProperty("created") Long created,
+
+            @JsonProperty("model") String model,
+
+            @JsonProperty("service_tier") String serviceTier,
+
+            @JsonProperty("system_fingerprint") String systemFingerprint,
+
+            @JsonProperty("object") String object,
+
+            @JsonProperty("usage") Usage usage,
+
+            @JsonProperty("error") ChatCompletionError error) {
+
+        public ChatCompletionChunk(String id, List<ChunkChoice> choices, Long created, String model,
+                String serviceTier, String systemFingerprint, String object, Usage usage) {
+            this(id, choices, created, model, serviceTier, systemFingerprint, object, usage, null);
+        }
+
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        public record ChunkChoice(@JsonProperty("finish_reason") ChatCompletionFinishReason finishReason,
+
+                @JsonProperty("native_finish_reason") ChatCompletionFinishReason nativeFinishReason,
+
+                @JsonProperty("index") Integer index,
+
+                @JsonProperty("delta") ChatCompletionMessage delta,
+
+                @JsonProperty("logprobs") LogProbs logprobs) {
+        }
+
+    }
+
+    /**
+     * 流内错误。metadata 里的 error_type 是 OpenRouter 归一化后的错误类型。
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record ChatCompletionError(@JsonProperty("code") Integer code, @JsonProperty("message") String message,
+            @JsonProperty("metadata") ErrorMetadata metadata) {
+
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        public record ErrorMetadata(@JsonProperty("error_type") String errorType,
+                @JsonProperty("provider_code") String providerCode) {
+        }
+
+    }
+
+    /**
+     * 非流式响应体。
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ChatCompletion(@JsonProperty("id") String id,
+
+            @JsonProperty("choices") List<Choice> choices,
+
+            @JsonProperty("created") Long created,
+
+            @JsonProperty("model") String model,
+
+            @JsonProperty("service_tier") String serviceTier,
+
+            @JsonProperty("system_fingerprint") String systemFingerprint,
+
+            @JsonProperty("object") String object,
+
+            @JsonProperty("usage") Usage usage) {
+
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        public record Choice(@JsonProperty("finish_reason") ChatCompletionFinishReason finishReason,
+
+                @JsonProperty("native_finish_reason") ChatCompletionFinishReason nativeFinishReason,
+
+                @JsonProperty("index") Integer index,
+
+                @JsonProperty("message") ChatCompletionMessage message,
+
+                @JsonProperty("logprobs") LogProbs logprobs) {
+        }
+
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record LogProbs(@JsonProperty("content") List<Content> content,
+            @JsonProperty("refusal") List<Content> refusal) {
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Content(@JsonProperty("token") String token, @JsonProperty("logprob") Float logprob,
+            @JsonProperty("bytes") List<Integer> probBytes,
+            @JsonProperty("top_logprobs") List<TopLogProbs> topLogprobs) {
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record TopLogProbs(@JsonProperty("token") String token, @JsonProperty("logprob") Float logprob,
+            @JsonProperty("bytes") List<Integer> probBytes) {
+    }
+
+    /**
+     * 用量统计。OpenRouter 在通用 token 计数之外还给出成本、缓存与 BYOK 信息。
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Usage(@JsonProperty("completion_tokens") Integer completionTokens,
+
+            @JsonProperty("completion_tokens_details") CompletionTokensDetails completionTokensDetails,
+
+            @JsonProperty("cost") Double cost,
+
+            @JsonProperty("cost_details") CostDetails costDetails,
+
+            @JsonProperty("deferred_tools_details") DeferredToolsDetails deferredToolsDetails,
+
+            @JsonProperty("is_byok") Boolean isByok,
+
+            @JsonProperty("prompt_tokens") Integer promptTokens,
+
+            @JsonProperty("prompt_tokens_details") PromptTokensDetails promptTokensDetails,
+
+            @JsonProperty("server_tool_use_details") ServerToolUseDetails serverToolUseDetails,
+
+            @JsonProperty("total_tokens") Integer totalTokens) {
+
+        public Usage(Integer completionTokens, Integer promptTokens, Integer totalTokens) {
+            this(completionTokens, null, null, null, null, null, promptTokens, null, null, totalTokens);
+        }
+
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public record CompletionTokensDetails(@JsonProperty("accepted_prediction_tokens") Integer acceptedPredictionTokens,
+                @JsonProperty("audio_tokens") Integer audioTokens,
+                @JsonProperty("reasoning_tokens") Integer reasoningTokens,
+                @JsonProperty("rejected_prediction_tokens") Integer rejectedPredictionTokens) {
         }
 
         /**
-         * 推理过程详情
+         * 上游推理成本明细，单位美元。命名用 prompt / completions，与 responses 通路的
+         * input / output 是两套写法，不可互换。
          */
-        public record ReasoningDetail(
-                // 推理过程详情类型
-                @JsonProperty("type") String type,
-                // 推理过程详情内容
-                @JsonProperty("text") String text,
-                // 推理过程详情格式
-                @JsonProperty("format") String format,
-                // 推理过程详情索引
-                @JsonProperty("index") Long index
-        ) {
-        }
-
-        // 请求函数对象
         @JsonInclude(JsonInclude.Include.NON_NULL)
-        @JsonIgnoreProperties(
-                ignoreUnknown = true
-        )
-        public static record ChatCompletionFunction(String name, String arguments) {
-            public ChatCompletionFunction(@JsonProperty("name") String name, @JsonProperty("arguments") String arguments) {
-                this.name = name;
-                this.arguments = arguments;
-            }
-
-            @JsonProperty("name")
-            public String name() {
-                return this.name;
-            }
-
-            @JsonProperty("arguments")
-            public String arguments() {
-                return this.arguments;
-            }
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public record CostDetails(@JsonProperty("server_tool_cost") Double serverToolCost,
+                @JsonProperty("upstream_inference_completions_cost") Double upstreamInferenceCompletionsCost,
+                @JsonProperty("upstream_inference_cost") Double upstreamInferenceCost,
+                @JsonProperty("upstream_inference_prompt_cost") Double upstreamInferencePromptCost) {
         }
 
-        // 工具调用
+        /**
+         * 延迟工具一整轮的总量。原始 token 字段只反映最后一次调用，成本字段覆盖全部调用。
+         */
         @JsonInclude(JsonInclude.Include.NON_NULL)
-        @JsonIgnoreProperties(
-                ignoreUnknown = true
-        )
-        public static record ToolCall(Integer index, String id, String type, ChatCompletionFunction function) {
-            public ToolCall(String id, String type, ChatCompletionFunction function) {
-                this((Integer) null, id, type, function);
-            }
-
-            public ToolCall(@JsonProperty("index") Integer index, @JsonProperty("id") String id, @JsonProperty("type") String type, @JsonProperty("function") ChatCompletionFunction function) {
-                this.index = index;
-                this.id = id;
-                this.type = type;
-                this.function = function;
-            }
-
-            // 工具调用索引
-            @JsonProperty("index")
-            public Integer index() {
-                return this.index;
-            }
-
-            // 工具调用 id
-            @JsonProperty("id")
-            public String id() {
-                return this.id;
-            }
-
-            // 工具调用类型
-            @JsonProperty("type")
-            public String type() {
-                return this.type;
-            }
-
-            // 工具调用函数
-            @JsonProperty("function")
-            public ChatCompletionFunction function() {
-                return this.function;
-            }
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public record DeferredToolsDetails(@JsonProperty("completion_tokens") Integer completionTokens,
+                @JsonProperty("prompt_tokens") Integer promptTokens,
+                @JsonProperty("total_tokens") Integer totalTokens,
+                @JsonProperty("turns") Integer turns) {
         }
 
-        // 文本内容
         @JsonInclude(JsonInclude.Include.NON_NULL)
-        public static record TextContent(
-                @JsonProperty("type")
-                MessageType type,
-                @JsonProperty("text")
-                String text
-        ) {
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public record PromptTokensDetails(@JsonProperty("audio_tokens") Integer audioTokens,
+                @JsonProperty("cache_write_tokens") Integer cacheWriteTokens,
+                @JsonProperty("cached_tokens") Integer cachedTokens,
+                @JsonProperty("video_tokens") Integer videoTokens) {
         }
 
-        // 图片内容
         @JsonInclude(JsonInclude.Include.NON_NULL)
-        public static record ImageContent(
-
-                @JsonProperty("type")
-                MessageType type,
-                @JsonProperty("image_url")
-                ImageUrl imageUrl
-        ) {
-            // 图片地址记录类
-            public record ImageUrl(
-                    // 图片地址 或 base64
-                    @JsonProperty("url")
-                    String url,
-                    // 该参数默认 auto
-                    @JsonProperty("detail")
-                    String detail
-            ) {
-            }
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public record ServerToolUseDetails(@JsonProperty("tool_calls_executed") Integer toolCallsExecuted,
+                @JsonProperty("tool_calls_requested") Integer toolCallsRequested,
+                @JsonProperty("web_search_requests") Integer webSearchRequests) {
         }
+
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    @JsonIgnoreProperties(
-            ignoreUnknown = true
-    )
-    public static record ChatCompletion(String id, List<Choice> choices, Long created, String model, String systemFingerprint, String object, Usage usage) {
-        public ChatCompletion(@JsonProperty("id") String id, @JsonProperty("choices") List<Choice> choices, @JsonProperty("created") Long created, @JsonProperty("model") String model, @JsonProperty("system_fingerprint") String systemFingerprint, @JsonProperty("object") String object, @JsonProperty("usage") Usage usage) {
-            this.id = id;
-            this.choices = choices;
-            this.created = created;
-            this.model = model;
-            this.systemFingerprint = systemFingerprint;
-            this.object = object;
-            this.usage = usage;
-        }
-
-        @JsonProperty("id")
-        public String id() {
-            return this.id;
-        }
-
-        @JsonProperty("choices")
-        public List<Choice> choices() {
-            return this.choices;
-        }
-
-        @JsonProperty("created")
-        public Long created() {
-            return this.created;
-        }
-
-        @JsonProperty("model")
-        public String model() {
-            return this.model;
-        }
-
-        @JsonProperty("system_fingerprint")
-        public String systemFingerprint() {
-            return this.systemFingerprint;
-        }
-
-        @JsonProperty("object")
-        public String object() {
-            return this.object;
-        }
-
-        @JsonProperty("usage")
-        public Usage usage() {
-            return this.usage;
-        }
-
-        @JsonInclude(JsonInclude.Include.NON_NULL)
-        @JsonIgnoreProperties(
-                ignoreUnknown = true
-        )
-        public static record Choice(ChatCompletionFinishReason finishReason, ChatCompletionFinishReason nativeFinishReason, Long index, ChatCompletionMessage message, LogProbs logprobs) {
-            public Choice(@JsonProperty("finish_reason") ChatCompletionFinishReason finishReason, @JsonProperty("native_finish_reason") ChatCompletionFinishReason nativeFinishReason, @JsonProperty("index") Long index, @JsonProperty("message") ChatCompletionMessage message, @JsonProperty("logprobs") LogProbs logprobs) {
-                this.finishReason = finishReason;
-                this.nativeFinishReason = nativeFinishReason;
-                this.index = index;
-                this.message = message;
-                this.logprobs = logprobs;
-            }
-
-            @JsonProperty("finish_reason")
-            public ChatCompletionFinishReason finishReason() {
-                return this.finishReason;
-            }
-
-            @JsonProperty("native_finish_reason")
-            public ChatCompletionFinishReason nativeFinishReason() {
-                return this.nativeFinishReason;
-            }
-
-            @JsonProperty("index")
-            public Long index() {
-                return this.index;
-            }
-
-            @JsonProperty("message")
-            public ChatCompletionMessage message() {
-                return this.message;
-            }
-
-            @JsonProperty("logprobs")
-            public LogProbs logprobs() {
-                return this.logprobs;
-            }
-        }
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ChatCompletionFunction(@JsonProperty("name") String name,
+            @JsonProperty("arguments") String arguments) {
     }
 
-    // 这 LogProbs 不知道什么东西，我选择保留下
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    @JsonIgnoreProperties(
-            ignoreUnknown = true
-    )
-    public static record LogProbs(List<Content> content, List<Content> refusal) {
-        public LogProbs(@JsonProperty("content") List<Content> content, @JsonProperty("refusal") List<Content> refusal) {
-            this.content = content;
-            this.refusal = refusal;
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ToolCall(@JsonProperty("index") Integer index, @JsonProperty("id") String id,
+            @JsonProperty("type") String type, @JsonProperty("function") ChatCompletionFunction function) {
+
+        public ToolCall(String id, String type, ChatCompletionFunction function) {
+            this(null, id, type, function);
         }
 
-        @JsonProperty("content")
-        public List<Content> content() {
-            return this.content;
-        }
-
-        @JsonProperty("refusal")
-        public List<Content> refusal() {
-            return this.refusal;
-        }
-
-        @JsonInclude(JsonInclude.Include.NON_NULL)
-        @JsonIgnoreProperties(
-                ignoreUnknown = true
-        )
-        public static record Content(String token, Float logprob, List<Integer> probBytes, List<TopLogProbs> topLogprobs) {
-            public Content(@JsonProperty("token") String token, @JsonProperty("logprob") Float logprob, @JsonProperty("bytes") List<Integer> probBytes, @JsonProperty("top_logprobs") List<TopLogProbs> topLogprobs) {
-                this.token = token;
-                this.logprob = logprob;
-                this.probBytes = probBytes;
-                this.topLogprobs = topLogprobs;
-            }
-
-            @JsonProperty("token")
-            public String token() {
-                return this.token;
-            }
-
-            @JsonProperty("logprob")
-            public Float logprob() {
-                return this.logprob;
-            }
-
-            @JsonProperty("bytes")
-            public List<Integer> probBytes() {
-                return this.probBytes;
-            }
-
-            @JsonProperty("top_logprobs")
-            public List<TopLogProbs> topLogprobs() {
-                return this.topLogprobs;
-            }
-
-            @JsonInclude(JsonInclude.Include.NON_NULL)
-            @JsonIgnoreProperties(
-                    ignoreUnknown = true
-            )
-            public static record TopLogProbs(String token, Float logprob, List<Integer> probBytes) {
-                public TopLogProbs(@JsonProperty("token") String token, @JsonProperty("logprob") Float logprob, @JsonProperty("bytes") List<Integer> probBytes) {
-                    this.token = token;
-                    this.logprob = logprob;
-                    this.probBytes = probBytes;
-                }
-
-                @JsonProperty("token")
-                public String token() {
-                    return this.token;
-                }
-
-                @JsonProperty("logprob")
-                public Float logprob() {
-                    return this.logprob;
-                }
-
-                @JsonProperty("bytes")
-                public List<Integer> probBytes() {
-                    return this.probBytes;
-                }
-            }
-        }
     }
 
-    // 消息类型枚举类
-    public enum MessageType {
-        @JsonProperty("text")
-        TEXT,
-        @JsonProperty("image_url")
-        IMAGE_URL
-    }
-
-    /**
-     * 聊天完成原因枚举类
-     */
     public enum ChatCompletionFinishReason {
+
         @JsonProperty("stop")
         STOP,
+
         @JsonProperty("length")
         LENGTH,
+
         @JsonProperty("content_filter")
         CONTENT_FILTER,
+
         @JsonProperty("tool_calls")
         TOOL_CALLS,
+
         @JsonProperty("tool_call")
         TOOL_CALL,
+
         @JsonProperty("error")
         ERROR;
 
-        private ChatCompletionFinishReason() {
-        }
-
-        // 添加一个容错的方法
+        /**
+         * 规范允许上游返回未列出的结束原因，认不出时按 null 处理。
+         */
         @JsonCreator
-        public static ChatCompletionFinishReason fromString(String value) {
+        public static ChatCompletionFinishReason fromString(@Nullable String value) {
             if (value == null) {
                 return null;
             }
-
-            // 统一转换为小写进行比较
-            String normalized = value.toLowerCase();
             for (ChatCompletionFinishReason reason : values()) {
-                if (reason.name().toLowerCase().equals(normalized)) {
+                if (reason.name().equalsIgnoreCase(value)) {
                     return reason;
                 }
             }
-            // 如果都不匹配，返回 null 或默认值
             return null;
         }
+
     }
 
-    /**
-     * 创建深度思考参数类
-     */
-    public enum Effort {
-        @JsonProperty("high")
-        HIGH,
-        @JsonProperty("medium")
-        MEDIUM,
-        @JsonProperty("low")
-        LOW,
-        ;
-
-        private Effort() {
-        }
-
-        // 添加一个容错的方法
-        @JsonCreator
-        public static Effort fromString(String value) {
-            if (value == null) {
-                return null;
-            }
-
-            // 统一转换为小写进行比较
-            String normalized = value.toLowerCase();
-            for (Effort thinkEffort : values()) {
-                if (thinkEffort.name().toLowerCase().equals(normalized)) {
-                    return thinkEffort;
-                }
-            }
-            // 如果都不匹配，返回 null 或默认值
-            return null;
-        }
-    }
 }
