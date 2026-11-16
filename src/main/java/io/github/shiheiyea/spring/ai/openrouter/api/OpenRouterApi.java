@@ -194,9 +194,8 @@ public class OpenRouterApi {
                     return !isInsideTool.get();
                 })
                 .concatMapIterable(window -> {
-                    Mono<ChatCompletionChunk> monoChunk = window
-                            .reduce(new ChatCompletionChunk(null, null, null, null, null, null, null, null),
-                                    (previous, current) -> this.chunkMerger.merge(previous, current));
+                    // 不传种子块：merge 的 previous 为 null 时直接返回 current，由它承担种子语义
+                    Mono<ChatCompletionChunk> monoChunk = window.reduce(this.chunkMerger::merge);
                     return List.of(monoChunk);
                 })
                 .flatMap(mono -> mono);

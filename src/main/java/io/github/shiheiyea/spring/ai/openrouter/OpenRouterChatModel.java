@@ -26,6 +26,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
@@ -172,11 +173,14 @@ public class OpenRouterChatModel implements ChatModel {
                     Usage currentUsage = chatCompletion.usage() != null ? getDefaultUsage(chatCompletion.usage())
                             : new EmptyUsage();
                     Usage cumulativeUsage = UsageCalculator.getCumulativeUsage(currentUsage, previousChatResponse);
+                    ChatResponse chatResponse = new ChatResponse(generations, from(chatCompletion, cumulativeUsage));
 
-                    return new ChatResponse(generations, from(chatCompletion, cumulativeUsage));
+                    // 必须写在 observe 的 lambda 内：span 停止时才读取 response 提取 usage 与 model 键值
+                    observationContext.setResponse(chatResponse);
+
+                    return chatResponse;
                 });
 
-        observationContext.setResponse(response);
         return response;
     }
 
@@ -197,6 +201,9 @@ public class OpenRouterChatModel implements ChatModel {
             // 排在观测之前，可避免校验失败时留下已启动却不会被 stop 的观测。
             Flux<ChatCompletionChunk> completionChunks = this.openRouterApi.chatCompletionStream(request);
 
+            // 流式响应只有首个分块带 role，同一 id 的后续分块共用它，因此按 id 记忆
+            ConcurrentHashMap<String, String> roleMap = new ConcurrentHashMap<>();
+
             ChatModelObservationContext observationContext = ChatModelObservationContext.builder()
                     .prompt(prompt)
                     .provider(OpenRouterConstants.PROVIDER_NAME)
@@ -216,17 +223,35 @@ public class OpenRouterChatModel implements ChatModel {
                 observation.start();
             }
 
-            Flux<ChatResponse> flux = completionChunks
-                    .map(chunk -> {
-                        List<Generation> generations = chunk.choices().stream()
-                                .map(this::buildGeneration)
-                                .toList();
-                        Usage currentUsage = chunk.usage() != null ? getDefaultUsage(chunk.usage())
-                                : new EmptyUsage();
-                        Usage cumulativeUsage = UsageCalculator.getCumulativeUsage(currentUsage,
-                                previousChatResponse);
-                        return new ChatResponse(generations, this.from(chunk, cumulativeUsage));
-                    })
+            // 分块先转成完整响应形状，再复用同一套 generation 构造，避免流式与非流式的元数据分叉
+            Flux<ChatResponse> chatResponse = completionChunks.map(this::chunkToChatCompletion).map(chatCompletion -> {
+                try {
+                    String id = chatCompletion.id();
+
+                    List<Generation> generations = chatCompletion.choices().stream().map(choice -> {
+                        if (choice.message() != null && choice.message().role() != null) {
+                            roleMap.putIfAbsent(id, choice.message().role().name());
+                        }
+
+                        Map<String, Object> metadata = Map.of("id", id != null ? id : "", "role",
+                                roleMap.getOrDefault(id, ""), "finishReason",
+                                choice.finishReason() != null ? choice.finishReason().name() : "");
+                        return buildGeneration(choice, metadata);
+                    }).toList();
+
+                    Usage currentUsage = chatCompletion.usage() != null ? getDefaultUsage(chatCompletion.usage())
+                            : new EmptyUsage();
+                    Usage cumulativeUsage = UsageCalculator.getCumulativeUsage(currentUsage, previousChatResponse);
+
+                    return new ChatResponse(generations, this.from(chatCompletion, cumulativeUsage));
+                }
+                catch (Exception ex) {
+                    logger.error("Error processing chat completion", ex);
+                    return new ChatResponse(List.of());
+                }
+            });
+
+            Flux<ChatResponse> flux = chatResponse
                     .doOnError(observation::error)
                     .doFinally(signal -> observation.stop())
                     .contextWrite(context -> context.put(ObservationThreadLocalAccessor.KEY, observation));
@@ -235,46 +260,19 @@ public class OpenRouterChatModel implements ChatModel {
         });
     }
 
-    private Generation buildGeneration(ChatCompletionChunk.ChunkChoice choice) {
-        List<AssistantMessage.ToolCall> toolCalls = new ArrayList<>();
-        String textContent = null;
-        String reasoningContent = null;
-        List<ReasoningDetail> reasoningDetails = null;
+    /**
+     * 把流式分块转成与非流式同形的响应对象，usage 留给调用处单独处理。
+     */
+    private ChatCompletion chunkToChatCompletion(ChatCompletionChunk chunk) {
+        List<ChatCompletion.Choice> choices = chunk.choices()
+                .stream()
+                .map(chunkChoice -> new ChatCompletion.Choice(chunkChoice.finishReason(),
+                        chunkChoice.nativeFinishReason(), chunkChoice.index(), chunkChoice.delta(),
+                        chunkChoice.logprobs()))
+                .toList();
 
-        ChatCompletionMessage delta = choice.delta();
-        if (delta != null) {
-            textContent = delta.content();
-            reasoningContent = delta.reasoning();
-            reasoningDetails = delta.reasoningDetails();
-            if (delta.toolCalls() != null) {
-                toolCalls = delta.toolCalls()
-                        .stream()
-                        .map(toolCall -> new AssistantMessage.ToolCall(toolCall.id(),
-                                toolCall.type() != null ? toolCall.type() : "function",
-                                toolCall.function() != null ? toolCall.function().name() : null,
-                                toolCall.function() != null ? toolCall.function().arguments() : null))
-                        .toList();
-            }
-        }
-
-        String finishReason = null;
-        if (choice.finishReason() != null) {
-            finishReason = choice.finishReason().name();
-        }
-        else if (choice.nativeFinishReason() != null) {
-            finishReason = choice.nativeFinishReason().name();
-        }
-
-        ChatGenerationMetadata metadata = ChatGenerationMetadata.builder().finishReason(finishReason).build();
-
-        OpenRouterAssistantMessage message = OpenRouterAssistantMessage.builder()
-                .content(textContent)
-                .reasoningContent(reasoningContent)
-                .reasoningDetails(reasoningDetails)
-                .toolCalls(toolCalls)
-                .build();
-
-        return new Generation(message, metadata);
+        return new ChatCompletion(chunk.id(), choices, chunk.created(), chunk.model(), chunk.serviceTier(),
+                chunk.systemFingerprint(), chunk.object(), chunk.usage());
     }
 
     private Generation buildGeneration(ChatCompletion.Choice choice, Map<String, Object> metadata) {
@@ -483,25 +481,6 @@ public class OpenRouterChatModel implements ChatModel {
                         ? usage.promptTokensDetails().cacheWriteTokens().longValue() : null;
         return new DefaultUsage(usage.promptTokens(), usage.completionTokens(), usage.totalTokens(), usage,
                 cacheReadInputTokens, cacheWriteInputTokens);
-    }
-
-    private ChatResponseMetadata from(ChatCompletionChunk result, Usage usage) {
-        Assert.notNull(result, "OpenRouter ChatCompletionChunk must not be null");
-        ChatResponseMetadata.Builder builder = ChatResponseMetadata.builder();
-        if (result.id() != null) {
-            builder.id(result.id());
-        }
-        if (result.model() != null) {
-            builder.model(result.model());
-        }
-        if (result.created() != null) {
-            builder.keyValue("created", result.created());
-        }
-        if (result.systemFingerprint() != null) {
-            builder.keyValue("system-fingerprint", result.systemFingerprint());
-        }
-        builder.usage(usage);
-        return builder.build();
     }
 
     private ChatResponseMetadata from(ChatCompletion result, Usage usage) {

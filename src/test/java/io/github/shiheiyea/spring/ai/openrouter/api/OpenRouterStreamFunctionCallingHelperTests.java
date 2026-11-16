@@ -164,6 +164,25 @@ class OpenRouterStreamFunctionCallingHelperTests {
                 .isFalse();
     }
 
+    @Test
+    void mergeShouldTolerateChunksWithoutChoices() {
+        ChatCompletionChunk previous = chunk("id1", List.of());
+
+        ChatCompletionChunk result = this.helper.merge(previous, chunk("id2", List.of()));
+
+        assertThat(result.id()).isEqualTo("id2");
+        assertThat(result.choices()).isEmpty();
+    }
+
+    @Test
+    void mergeShouldSkipPreviousWithoutChoices() {
+        ChatCompletionChunk previous = chunk("id1", List.of());
+
+        ChatCompletionChunk result = this.helper.merge(previous, chunkWithFinishReason("id2", ChatCompletionFinishReason.STOP));
+
+        assertThat(result.choices()).hasSize(1);
+        assertThat(result.choices().get(0).finishReason()).isEqualTo(ChatCompletionFinishReason.STOP);
+    }
     private ChatCompletionChunk chunk(String id, List<ChunkChoice> choices) {
         return new ChatCompletionChunk(id, choices, null, null, null, null, null, null);
     }

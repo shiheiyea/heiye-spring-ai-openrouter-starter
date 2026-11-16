@@ -63,10 +63,9 @@ public class OpenRouterChatAutoConfiguration {
             ObjectProvider<RetryTemplate> retryTemplate, ObjectProvider<ResponseErrorHandler> responseErrorHandler,
             ObjectProvider<ObservationRegistry> observationRegistry,
             ObjectProvider<ChatModelObservationConvention> observationConvention) {
-        OpenRouterApi openRouterApi = openRouterApi(connectionProperties, chatProperties,
+        OpenRouterApi openRouterApi = openRouterApi(chatProperties, connectionProperties,
                 restClientBuilderProvider.getIfAvailable(RestClient::builder),
-                webClientBuilderProvider.getIfAvailable(WebClient::builder),
-                responseErrorHandler.getIfAvailable(() -> RetryUtils.DEFAULT_RESPONSE_ERROR_HANDLER));
+                webClientBuilderProvider.getIfAvailable(WebClient::builder), responseErrorHandler);
         OpenRouterChatModel chatModel = OpenRouterChatModel.builder()
                 .openRouterApi(openRouterApi)
                 .options(chatProperties.toOptions())
@@ -78,9 +77,9 @@ public class OpenRouterChatAutoConfiguration {
         return chatModel;
     }
 
-    private OpenRouterApi openRouterApi(OpenRouterConnectionProperties connectionProperties,
-            OpenRouterChatProperties chatProperties, RestClient.Builder restClientBuilder,
-            WebClient.Builder webClientBuilder, ResponseErrorHandler responseErrorHandler) {
+    private OpenRouterApi openRouterApi(OpenRouterChatProperties chatProperties,
+            OpenRouterConnectionProperties connectionProperties, RestClient.Builder restClientBuilder,
+            WebClient.Builder webClientBuilder, ObjectProvider<ResponseErrorHandler> responseErrorHandler) {
         String resolvedBaseUrl = StringUtils.hasText(chatProperties.getBaseUrl()) ? chatProperties.getBaseUrl()
                 : connectionProperties.getBaseUrl();
         Assert.hasText(resolvedBaseUrl, "OpenRouter base URL must be set");
@@ -93,7 +92,8 @@ public class OpenRouterChatAutoConfiguration {
                 .completionsPath(chatProperties.getCompletionsPath())
                 .restClientBuilder(restClientBuilder)
                 .webClientBuilder(webClientBuilder)
-                .responseErrorHandler(responseErrorHandler)
+                .responseErrorHandler(responseErrorHandler.getIfAvailable(
+                        () -> RetryUtils.DEFAULT_RESPONSE_ERROR_HANDLER))
                 .build();
     }
 

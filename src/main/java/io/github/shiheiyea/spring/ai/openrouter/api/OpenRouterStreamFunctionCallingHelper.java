@@ -26,6 +26,8 @@ import java.util.Objects;
 
 import org.jspecify.annotations.Nullable;
 
+import org.springframework.util.CollectionUtils;
+
 import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ChatCompletionChunk;
 import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ChatCompletionChunk.ChunkChoice;
 import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ChatCompletionFinishReason;
@@ -46,8 +48,11 @@ public class OpenRouterStreamFunctionCallingHelper {
             return current;
         }
 
-        List<ChunkChoice> choices = !current.choices().isEmpty()
-                ? List.of(this.merge(previous.choices().get(0), current.choices().get(0))) : List.of();
+        ChunkChoice previousChoice0 = CollectionUtils.isEmpty(previous.choices()) ? null : previous.choices().get(0);
+        ChunkChoice currentChoice0 = CollectionUtils.isEmpty(current.choices()) ? null : current.choices().get(0);
+
+        ChunkChoice choice = currentChoice0 != null ? this.merge(previousChoice0, currentChoice0) : null;
+        List<ChunkChoice> choices = choice == null ? List.of() : List.of(choice);
 
         return new ChatCompletionChunk(current.id() != null ? current.id() : previous.id(), choices,
                 current.created() != null ? current.created() : previous.created(),
@@ -59,7 +64,11 @@ public class OpenRouterStreamFunctionCallingHelper {
                 current.error() != null ? current.error() : previous.error());
     }
 
-    private ChunkChoice merge(ChunkChoice previous, ChunkChoice current) {
+    private ChunkChoice merge(@Nullable ChunkChoice previous, ChunkChoice current) {
+        if (previous == null) {
+            return current;
+        }
+
         return new ChunkChoice(current.finishReason() != null ? current.finishReason() : previous.finishReason(),
                 current.nativeFinishReason() != null ? current.nativeFinishReason() : previous.nativeFinishReason(),
                 current.index() != null ? current.index() : previous.index(),
