@@ -23,9 +23,9 @@ package io.github.shiheiyea.spring.ai.openrouter;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 
 import io.micrometer.observation.Observation;
@@ -35,7 +35,6 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.jspecify.annotations.Nullable;
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
@@ -57,21 +56,21 @@ import org.springframework.ai.chat.observation.ChatModelObservationDocumentation
 import org.springframework.ai.chat.observation.DefaultChatModelObservationConvention;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.content.Media;
-import org.springframework.ai.model.ModelOptionsUtils;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.retry.RetryUtils;
 import org.springframework.ai.support.UsageCalculator;
 import org.springframework.ai.tool.definition.ToolDefinition;
+import org.springframework.ai.util.JsonHelper;
 import org.springframework.core.retry.RetryTemplate;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.Assert;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.MimeType;
+import org.springframework.util.StringUtils;
 
 import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi;
 import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ChatCompletion;
 import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ChatCompletionChunk;
-import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ChatCompletionFinishReason;
 import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ChatCompletionFunction;
 import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ChatCompletionMessage;
 import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ChatCompletionRequest;
@@ -85,6 +84,8 @@ public class OpenRouterChatModel implements ChatModel {
     private static final ToolCallingManager DEFAULT_TOOL_CALLING_MANAGER = ToolCallingManager.builder().build();
 
     private static final Log logger = LogFactory.getLog(OpenRouterChatModel.class);
+
+    private static final JsonHelper jsonHelper = new JsonHelper();
 
     /**
      * 兜底观测约定，没有显式设置时使用。
@@ -390,10 +391,12 @@ public class OpenRouterChatModel implements ChatModel {
         OpenRouterChatOptions requestOptions = (OpenRouterChatOptions) prompt.getOptions();
         Assert.state(requestOptions != null, "requestOptions must not be null");
 
+        // 响应格式在请求构建期做一次转换，非法 schema 在这里就失败
+        OpenRouterApi.ResponseFormat responseFormat = this.toResponseFormat(requestOptions);
+
         // 运行期选项优先，缺省值来自模型持有的默认选项
         request = new ChatCompletionRequest(request.messages(), request.stream(),
-                requestOptions.getTools(),
-                ModelOptionsUtils.mergeOption(request.responseFormat(), request.responseFormat()),
+                requestOptions.getTools(), responseFormat,
                 requestOptions.getModel(), requestOptions.getMaxTokens(), requestOptions.getTemperature(),
                 requestOptions.getTopP(), requestOptions.getTopK(), requestOptions.getFrequencyPenalty(),
                 requestOptions.getPresencePenalty(), requestOptions.getRepetitionPenalty(), requestOptions.getSeed(),
@@ -419,6 +422,50 @@ public class OpenRouterChatModel implements ChatModel {
         }
 
         return request;
+    }
+
+    /**
+     * 把 Options 侧的响应格式转成请求体的强类型形态。
+     *
+     * 三种类型分别对应纯文本、无结构 JSON 和带 schema 的 JSON。带 schema 时在这里解析字符串，
+     * 同时补齐两个可以省略的字段：结构名缺省取 {@code openrouter_response_schema}，严格模式缺省开启。
+     * 解析失败直接抛参数异常，不做静默降级。
+     */
+    private OpenRouterApi.@Nullable ResponseFormat toResponseFormat(OpenRouterChatOptions options) {
+        OpenRouterChatOptions.ResponseFormat format = options.getResponseFormat();
+        if (format == null) {
+            return null;
+        }
+        if (format.getType() == OpenRouterApi.ResponseFormat.Type.TEXT) {
+            return OpenRouterApi.ResponseFormat.text();
+        }
+        if (format.getType() == OpenRouterApi.ResponseFormat.Type.JSON_OBJECT) {
+            return OpenRouterApi.ResponseFormat.jsonObject();
+        }
+
+        String jsonSchema = format.getJsonSchema();
+        if (!StringUtils.hasText(jsonSchema)) {
+            throw new IllegalArgumentException(
+                    "JSON schema must be set when response format type is JSON_SCHEMA");
+        }
+
+        Map<String, Object> schema;
+        try {
+            schema = jsonHelper.fromJsonToMap(jsonSchema);
+        }
+        catch (RuntimeException ex) {
+            throw new IllegalArgumentException("Failed to parse JSON schema: " + jsonSchema, ex);
+        }
+        // 解析成空 Map 但原文不是空对象，说明上游给了 "null" 这类合法 JSON 却不是 schema
+        if (schema.isEmpty() && !"{}".equals(jsonSchema.trim())) {
+            throw new IllegalArgumentException("Failed to parse JSON schema: " + jsonSchema);
+        }
+
+        String name = format.getName() != null ? format.getName() : OpenRouterApi.JSON_SCHEMA_NAME;
+        Boolean strict = format.getStrict() != null ? format.getStrict() : Boolean.TRUE;
+        OpenRouterApi.ResponseFormat.JsonSchema schemaHolder = new OpenRouterApi.ResponseFormat.JsonSchema(name,
+                null, new HashMap<>(schema), strict);
+        return new OpenRouterApi.ResponseFormat(OpenRouterApi.ResponseFormat.Type.JSON_SCHEMA, schemaHolder);
     }
 
     /**

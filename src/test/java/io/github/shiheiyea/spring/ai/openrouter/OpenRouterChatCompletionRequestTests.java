@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.util.JsonHelper;
 
 import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi;
 import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ChatCompletionMessage;
@@ -36,6 +37,7 @@ import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.Reasoning;
 import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ReasoningDetail;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class OpenRouterChatCompletionRequestTests {
 
@@ -191,6 +193,163 @@ class OpenRouterChatCompletionRequestTests {
 
         assertThat(request.tools()).hasSize(1);
         assertThat(request.tools().get(0).getFunction().getName()).isEqualTo("weather");
+    }
+
+    @Test
+    void createRequestWithoutResponseFormat() {
+        ChatCompletionRequest request = this.client.createRequest(new Prompt("Test message content",
+                OpenRouterChatOptions.builder().build()), false);
+
+        assertThat(request.responseFormat()).isNull();
+    }
+
+    @Test
+    void createRequestWithOutputSchema() {
+        ChatCompletionRequest request = this.client.createRequest(new Prompt("Test message content",
+                OpenRouterChatOptions.builder()
+                        .outputSchema("{\"type\":\"object\",\"properties\":{\"title\":{\"type\":\"string\"}}}")
+                        .build()),
+                false);
+
+        OpenRouterApi.ResponseFormat responseFormat = request.responseFormat();
+        assertThat(responseFormat).isNotNull();
+        assertThat(responseFormat.type()).isEqualTo(OpenRouterApi.ResponseFormat.Type.JSON_SCHEMA);
+        assertThat(responseFormat.jsonSchema().name()).isEqualTo(OpenRouterApi.JSON_SCHEMA_NAME);
+        assertThat(responseFormat.jsonSchema().strict()).isTrue();
+        assertThat(responseFormat.jsonSchema().schema()).containsKey("type");
+        assertThat(responseFormat.jsonSchema().schema().get("type")).isEqualTo("object");
+    }
+
+    @Test
+    void createRequestWithBlankOutputSchema() {
+        for (String blank : new String[] { "", "   " }) {
+            ChatCompletionRequest request = this.client.createRequest(new Prompt("Test message content",
+                    OpenRouterChatOptions.builder().outputSchema(blank).build()), false);
+
+            assertThat(request.responseFormat()).isNull();
+        }
+
+        ChatCompletionRequest request = this.client.createRequest(new Prompt("Test message content",
+                OpenRouterChatOptions.builder().outputSchema(null).build()), false);
+
+        assertThat(request.responseFormat()).isNull();
+    }
+
+    @Test
+    void createRequestWithInvalidOutputSchema() {
+        String invalid = "{not-a-json";
+
+        assertThatThrownBy(() -> this.client.createRequest(new Prompt("Test message content",
+                OpenRouterChatOptions.builder().outputSchema(invalid).build()), false))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Failed to parse JSON schema")
+            .hasMessageContaining(invalid);
+    }
+
+    @Test
+    void createRequestWithJsonSchemaNullLiteral() {
+        assertThatThrownBy(() -> this.client.createRequest(new Prompt("Test message content",
+                OpenRouterChatOptions.builder().outputSchema("null").build()), false))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Failed to parse JSON schema");
+    }
+
+    @Test
+    void createRequestWithEmptySchemaObject() {
+        ChatCompletionRequest request = this.client.createRequest(new Prompt("Test message content",
+                OpenRouterChatOptions.builder().outputSchema("{}").build()), false);
+
+        assertThat(request.responseFormat()).isNotNull();
+        assertThat(request.responseFormat().jsonSchema().schema()).isEmpty();
+    }
+
+    @Test
+    void createRequestWithCustomNameAndStrict() {
+        ChatCompletionRequest request = this.client.createRequest(new Prompt("Test message content",
+                OpenRouterChatOptions.builder()
+                        .responseFormat(OpenRouterChatOptions.ResponseFormat.builder()
+                                .jsonSchema("{}")
+                                .name("my_schema")
+                                .strict(false)
+                                .build())
+                        .build()),
+                false);
+
+        assertThat(request.responseFormat().jsonSchema().name()).isEqualTo("my_schema");
+        assertThat(request.responseFormat().jsonSchema().strict()).isFalse();
+    }
+
+    @Test
+    void createRequestWithJsonObjectType() {
+        ChatCompletionRequest request = this.client.createRequest(new Prompt("Test message content",
+                OpenRouterChatOptions.builder()
+                        .responseFormat(OpenRouterChatOptions.ResponseFormat.builder()
+                                .type(OpenRouterApi.ResponseFormat.Type.JSON_OBJECT)
+                                .build())
+                        .build()),
+                false);
+
+        assertThat(request.responseFormat()).isNotNull();
+        assertThat(request.responseFormat().type()).isEqualTo(OpenRouterApi.ResponseFormat.Type.JSON_OBJECT);
+        assertThat(request.responseFormat().jsonSchema()).isNull();
+    }
+
+    @Test
+    void createRequestWithTextType() {
+        ChatCompletionRequest request = this.client.createRequest(new Prompt("Test message content",
+                OpenRouterChatOptions.builder()
+                        .responseFormat(OpenRouterChatOptions.ResponseFormat.builder()
+                                .type(OpenRouterApi.ResponseFormat.Type.TEXT)
+                                .build())
+                        .build()),
+                false);
+
+        assertThat(request.responseFormat()).isNotNull();
+        assertThat(request.responseFormat().type()).isEqualTo(OpenRouterApi.ResponseFormat.Type.TEXT);
+    }
+
+    @Test
+    void responseFormatSerializesAsJsonObject() {
+        ChatCompletionRequest request = this.client.createRequest(new Prompt("Test message content",
+                OpenRouterChatOptions.builder()
+                        .outputSchema("{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\","
+                                + "\"type\":\"object\",\"properties\":{\"title\":{\"type\":\"string\"}}}")
+                        .build()),
+                false);
+
+        JsonHelper jsonHelper = new JsonHelper();
+        String json = jsonHelper.toJson(request);
+
+        assertThat(json).contains("\"type\":\"json_schema\"");
+        assertThat(json).contains("\"name\":\"" + OpenRouterApi.JSON_SCHEMA_NAME + "\"");
+        assertThat(json).contains("\"strict\":true");
+        assertThat(json).contains("\"$schema\"");
+        // schema 必须是嵌套对象，不能是被转义的字符串
+        assertThat(json).contains("\"schema\":{");
+
+        ChatCompletionRequest jsonObjectRequest = this.client.createRequest(new Prompt("Test message content",
+                OpenRouterChatOptions.builder()
+                        .responseFormat(OpenRouterChatOptions.ResponseFormat.builder()
+                                .type(OpenRouterApi.ResponseFormat.Type.JSON_OBJECT)
+                                .build())
+                        .build()),
+                false);
+
+        assertThat(jsonHelper.toJson(jsonObjectRequest)).doesNotContain("json_schema");
+    }
+
+    @Test
+    void outputSchemaSurvivesToolBranch() {
+        OpenRouterApi.FunctionTool tool = new OpenRouterApi.FunctionTool(OpenRouterApi.FunctionTool.Type.FUNCTION,
+                new OpenRouterApi.FunctionTool.Function("weather", "Get the weather", "{}"));
+
+        ChatCompletionRequest request = this.client.createRequest(new Prompt("Test message content",
+                OpenRouterChatOptions.builder().tools(List.of(tool)).outputSchema("{\"type\":\"object\"}").build()),
+                false);
+
+        assertThat(request.tools()).hasSize(1);
+        assertThat(request.responseFormat()).isNotNull();
+        assertThat(request.responseFormat().jsonSchema().schema()).containsKey("type");
     }
 
 }
