@@ -45,6 +45,10 @@ class OpenRouterRuntimeHintsTests {
         for (TypeReference jsonAnnotatedClass : jsonAnnotatedClasses) {
             assertThat(runtimeHints).matches(reflection().onType(jsonAnnotatedClass));
         }
+
+        // 结构化输出的两个类型靠 @JsonInclude 进入候选集合，显式钉住，防止后人删掉注解后退化成静默失效
+        assertThat(runtimeHints).matches(reflection().onType(OpenRouterApi.ResponseFormat.class));
+        assertThat(runtimeHints).matches(reflection().onType(OpenRouterApi.ResponseFormat.JsonSchema.class));
     }
 
 }

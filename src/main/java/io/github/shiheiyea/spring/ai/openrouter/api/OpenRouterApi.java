@@ -21,6 +21,7 @@
 package io.github.shiheiyea.spring.ai.openrouter.api;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -44,6 +45,7 @@ import org.springframework.ai.model.NoopApiKey;
 import org.springframework.ai.model.SimpleApiKey;
 import org.springframework.ai.retry.RetryUtils;
 import org.springframework.ai.util.JsonHelper;
+import org.springframework.ai.util.json.schema.JsonSchemaGenerator;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -61,6 +63,11 @@ public class OpenRouterApi {
     private static final JsonHelper jsonHelper = new JsonHelper();
 
     public static final ChatModel DEFAULT_CHAT_MODEL = ChatModel.GOOGLE_GEMINI_3_FLASH_PREVIEW;
+
+    /**
+     * json_schema 变体的缺省结构名。OpenRouter 把 name 列为必填，字符集限 a-zA-Z0-9_- 且不超过 64 字符。
+     */
+    public static final String JSON_SCHEMA_NAME = "openrouter_response_schema";
 
     private static final Predicate<String> SSE_DONE_PREDICATE = "[DONE]"::equals;
 
@@ -319,6 +326,9 @@ public class OpenRouterApi {
      * {@code response_format}，5 个高频强类型字段，以及由 {@link #extraBody} 承载的
      * 12 个低频字段。{@code extraBody} 通过 {@code @JsonAnyGetter} 展平到请求体顶层，
      * 所以序列化结果里不会出现 {@code extra_body} 这个包裹层。
+     *
+     * {@code response_format} 由强类型 {@link ResponseFormat} 承载，取值来自 Options 侧的
+     * {@code StructuredOutputChatOptions#getOutputSchema()} 或用户直接设置的响应格式。
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record ChatCompletionRequest(@JsonProperty("messages") List<ChatCompletionMessage> messages,
@@ -327,7 +337,7 @@ public class OpenRouterApi {
 
             @JsonProperty("tools") List<FunctionTool> tools,
 
-            @Deprecated(since = "2.0.0", forRemoval = true) @JsonProperty("response_format") Object responseFormat,
+            @JsonProperty("response_format") ResponseFormat responseFormat,
 
             @JsonProperty("model") String model,
 
@@ -393,10 +403,20 @@ public class OpenRouterApi {
 
         /**
          * 把低频字段展平到请求体顶层，这是 OpenRouter 侧接收 extraBody 字段的落地点。
+         *
+         * {@code response_format} 已由强类型组件承载，透传同名键会产生重复字段，这里直接剔除。
          */
         @JsonAnyGetter
         public Map<String, Object> extraBodyProperties() {
-            return this.extraBody == null ? Map.of() : this.extraBody;
+            if (this.extraBody == null || this.extraBody.isEmpty()) {
+                return Map.of();
+            }
+            if (!this.extraBody.containsKey("response_format")) {
+                return this.extraBody;
+            }
+            Map<String, Object> properties = new HashMap<>(this.extraBody);
+            properties.remove("response_format");
+            return properties;
         }
 
         public static class ToolChoiceBuilder {
@@ -413,6 +433,70 @@ public class OpenRouterApi {
             public static Object FUNCTION(String functionName) {
                 return Map.of("type", "function", "function", Map.of("name", functionName));
             }
+
+        }
+
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record ResponseFormat(@JsonProperty("type") Type type,
+
+            @JsonProperty("json_schema") JsonSchema jsonSchema) {
+
+        /**
+         * 纯文本输出，语义上等价于不限制格式。
+         */
+        public static ResponseFormat text() {
+            return new ResponseFormat(Type.TEXT, null);
+        }
+
+        /**
+         * JSON 对象输出，不约束具体结构，适合上游不支持 json_schema 的场景。
+         */
+        public static ResponseFormat jsonObject() {
+            return new ResponseFormat(Type.JSON_OBJECT, null);
+        }
+
+        /**
+         * 用 JSON Schema 字符串描述结构，缺省补齐结构名并开启严格模式。
+         */
+        public static ResponseFormat jsonSchema(String jsonSchema) {
+            return jsonSchema(jsonHelper.fromJsonToMap(jsonSchema));
+        }
+
+        /**
+         * 用 Java 类型生成 JSON Schema，内部走框架的结构生成器。
+         */
+        public static ResponseFormat jsonSchema(Class<?> type) {
+            return jsonSchema(JsonSchemaGenerator.generateForType(type));
+        }
+
+        public static ResponseFormat jsonSchema(Map<String, Object> jsonSchema) {
+            JsonSchema schema = new JsonSchema(JSON_SCHEMA_NAME, null, new HashMap<>(jsonSchema), Boolean.TRUE);
+            return new ResponseFormat(Type.JSON_SCHEMA, schema);
+        }
+
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        public record JsonSchema(@JsonProperty("name") String name,
+
+                @JsonProperty("description") String description,
+
+                @JsonProperty("schema") Map<String, Object> schema,
+
+                @JsonProperty("strict") Boolean strict) {
+
+        }
+
+        public enum Type {
+
+            @JsonProperty("text")
+            TEXT,
+
+            @JsonProperty("json_object")
+            JSON_OBJECT,
+
+            @JsonProperty("json_schema")
+            JSON_SCHEMA
 
         }
 
