@@ -177,7 +177,7 @@ spring:
 | --- | --- | --- |
 | A 高频强类型 | 25 | `OpenRouterChatOptions` 字段 + `ChatCompletionRequest` 组件 |
 | B 低频透传 | 12 | `OpenRouterChatOptions.extraBody`，经 `@JsonAnyGetter` 展平到请求体顶层 |
-| C 模型层组装 | 4 | `messages` / `stream` / `tools` / `response_format` |
+| C 模型层组装 | 4 | `messages` / `stream` / `tools` / `response_format`（强类型 `ResponseFormat`，由 `responseFormat` / `outputSchema` 驱动） |
 | D 不暴露 | 1 | `reasoning_effort`，与 `reasoning.effort` 互斥，只留后者 |
 | E 已删除 | 1 | `max_tokens`，改用 `max_completion_tokens` |
 
@@ -271,6 +271,79 @@ var response = chatModel.call(new Prompt("请调用工具查询应用名称。",
 
 2.0.0 与 DeepSeek 模块一致：**模型层不再执行工具**。需要自动执行时用 `ToolCallingManager` 或 Spring AI 2.0.0 的 `ToolCallingAdvisor`，或手动读取 `getToolCalls()` 后自行执行并在下一轮传入 `ToolResponseMessage`。
 
+### 结构化输出（`response_format`）
+
+三种格式都能直接请求：`json_schema`（带结构约束）、`json_object`（只要求是 JSON 对象）、`text`（不限制）。
+推荐走 Spring AI 的统一入口，用 `ChatClient` 的 `.entity(...)` 配合 `useProviderStructuredOutput()`：
+框架会自动把目标类型转成 JSON Schema，通过 `StructuredOutputChatOptions#outputSchema` 写进 `response_format`。
+
+```java
+// 由 provider 侧按 schema 约束生成，客户端只做反序列化
+var result = chatClient.prompt("把这段说明整理成标题和三条要点")
+        .options(OpenRouterChatOptions.builder().model("google/gemini-3-flash-preview").build())
+        .call()
+        .entity(ArticleSummary.class, spec -> spec.useProviderStructuredOutput());
+```
+
+也可以直接给 Options 设响应格式：
+
+```java
+// 只支持 JSObject 的上游：退化成 json_object，schema 放进提示词
+var jsonObjectOptions = OpenRouterChatOptions.builder()
+        .responseFormat(OpenRouterChatOptions.ResponseFormat.builder()
+                .type(OpenRouterApi.ResponseFormat.Type.JSON_OBJECT)
+                .build())
+        .build();
+
+// 手写 schema（不经过 BeanOutputConverter）
+var schemaOptions = OpenRouterChatOptions.builder()
+        .outputSchema("""
+                {"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}
+                """)
+        .build();
+```
+
+三层保证：
+
+1. `strict` 缺省 `true`，请求上游用原生受约束解码；需要关掉时用 `responseFormat(...).strict(false)`。
+2. schema 字符串在**请求构建期**解析并校验，非法 JSON 直接抛 `IllegalArgumentException`，不会把坏请求发出去。
+3. `json_schema.name` 缺省 `openrouter_response_schema`（OpenRouter 要求该字段必填，字符集 `a-zA-Z0-9_-`，长度 ≤ 64），可用 `name(...)` 覆盖。
+
+六条限制：
+
+- `strict: true` 是**请求严格**，不是**结果保证**。是否真的受约束取决于上游 provider 的实现，部分 provider 只把它当强提示。
+- 流式响应会照常发出 `response_format`，但 Spring AI 的流式链路没有结构化 output 的消费机制，需要应用自行聚合文本再反序列化。
+- `BeanOutputConverter` 产出的 schema 顶层带 `"$schema": "https://json-schema.org/draft/2020-12/schema"`，本项目原样透传；若某上游只接受 draft-07 等旧版本，需要使用者自行删键。
+- 部分上游不支持 `response_format`。需要强制路由时配 `provider.require_parameters = true`，否则请求可能被分发给不支持的 endpoint 并返回 400。
+- 没有扁平配置键：`spring.ai.openrouter.chat.*` 下不提供 `response-format` 这类属性，结构化输出只能按请求设置（或用本节末尾的 ChatClient 全局开关，那是 advisor 参数，不是配置属性）。
+- 不要在 `extraBody` 里塞 `response_format`：该键已由强类型组件承载，`extraBodyProperties()` 会主动剔除同名键，塞进去也不会生效。
+
+**ChatClient 侧全局启用（可选）**
+
+除了逐请求写 `useProviderStructuredOutput()`，也可以在整个 `ChatClient` 上一次性打开原生结构化输出。
+这是 Spring AI 官方文档里的「全局启用」，参数是 `AdvisorParams.ENABLE_NATIVE_STRUCTURED_OUTPUT`：
+
+```java
+ChatClient chatClient = ChatClient.builder(chatModel)
+        .defaultAdvisors(AdvisorParams.ENABLE_NATIVE_STRUCTURED_OUTPUT)
+        .build();
+
+// 之后不必再写 spec.useProviderStructuredOutput()
+var result = chatClient.prompt("把这段说明整理成标题和三条要点")
+        .call()
+        .entity(ArticleSummary.class);
+```
+
+它本身不生成 schema，只是往请求上下文里放一个 `spring.ai.chat.client.structured.output.native=true` 标记；
+当调用真的用到 `.entity(...)` 时，框架据此把 `BeanOutputConverter` 产出的 schema 写进 `StructuredOutputChatOptions#outputSchema`，
+效果与逐调用 `useProviderStructuredOutput()` 相同。不走 `.entity(...)` 的普通调用（`call().content()`、`stream()` 等）完全不受影响——当时没有 schema 可写，标记被忽略。
+
+三条使用须知：
+
+1. **开了就关不掉**：判定用的是 `context().containsKey(...)`，不是取值布尔比较，`param(key, false)` 一样算打开；`advisors(Consumer)` 内部是 `putAll`，也无法移除已放入的键。唯一的逃生门是另建一个不挂这个 `ChatClient` 实例。
+2. **别在模型路由不可控时默认打开**：打开后每个 `.entity(...)` 调用都会带上 `response_format`，一旦被路由到不支持该参数的 endpoint，OpenRouter 会直接报错而不是静默忽略。要求强制路由时配 `provider.require_parameters = true`。
+3. **需要自己引入 `spring-ai-client-chat`**：`ChatClient` 与 `AdvisorParams` 都在那个 artifact 里。本模块只在 `ChatModel` 必要链路上取依赖，`spring-ai-client-chat` 经 `spring-ai-test` 以 test 作用域进来，不传递给使用方（官方 `spring-ai-starter-model-deepseek` 这类 starter 是 compile 引入的，本项目没有对应 starter）。
+
 ### 手动创建模型与自定义请求头
 
 ```java
@@ -297,7 +370,7 @@ var chatModel = OpenRouterChatModel.builder()
 | --- | --- |
 | 构建 | Java 17 · Spring Boot 4.1.0 · Spring AI BOM 2.0.0 · `revision` = 2.0.0 |
 | 包结构 | 根包（Options / ChatModel / AssistantMessage）、`api`、`api.common`、`autoconfigure`、`aot` |
-| Options 契约 | `implements ToolCallingChatOptions`，泛型 Builder + `mutate()` + `clone()` + `combineWith()`，30 个不可变字段 |
+| Options 契约 | `implements ToolCallingChatOptions, StructuredOutputChatOptions`，泛型 Builder + `mutate()` + `clone()` + `combineWith()`，31 个不可变字段 |
 | 非流式 | `chatCompletionEntity` 真实实现，走 `RestClient` + 重试 |
 | 流式 | `WebClient` + SSE 解析 + 窗口缝合，`MessageAggregator` 聚合 |
 | 观测 | `ChatModelObservationDocumentation` 埋点，两条链路都覆盖 |
@@ -306,11 +379,10 @@ var chatModel = OpenRouterChatModel.builder()
 | 多模态 | image（URI / String / byte[]）+ audio（byte[]）+ else 文本兜底 |
 | 响应 | `usage` 10 字段（含 cache 读写）、`reasoningDetails` 12 字段、`system_fingerprint`、`openrouter_metadata` |
 | AOT | `OpenRouterRuntimeHints` 注册 Jackson DTO |
-| 测试 | 8 个单元测试类（55 个用例）+ 3 个 `@Disabled` 真实网络 IT |
+| 测试 | 8 个单元测试类（74 个用例）+ 3 个 `@Disabled` 真实网络 IT |
 
 ### 明确不做
 
-- 原生结构化输出：不实现 `StructuredOutputChatOptions`，`response_format` 保留 `Object` 死字段并标 `@Deprecated(forRemoval = true)`。
 - 视频输入与 `file` 内容部件：Spring AI 2.0.0 的 OpenAI 模块自身无 video 分支，不建模。
 - 模型层工具执行：交由 `ToolCallingManager` / `ToolCallingAdvisor`。
 - Embedding、图像生成、语音、模型列表查询等其它模型接口。
@@ -326,15 +398,16 @@ var chatModel = OpenRouterChatModel.builder()
 | 流式 | WebClient + 窗口缝合 | 同 | ✅ 对齐 |
 | 观测 | 两条链路埋点 | 同 | ✅ 对齐 |
 | 重试 | `RetryTemplate` 真实接线 | 同 | ✅ 对齐 |
-| Options 契约 | `ToolCallingChatOptions` + 泛型 Builder + mutate | 同 | ✅ 对齐 |
+| Options 契约 | `ToolCallingChatOptions` + `StructuredOutputChatOptions` + 泛型 Builder + mutate | 仅 `ToolCallingChatOptions` + 泛型 Builder + mutate | ➕ 本项目多接一个接口 |
 | 配置扁平化 | 24 项扁平 + 兼容桥 | 13 项扁平（2.0.1 为 15 项） | ✅ 对齐机制，键更多 |
 | 请求字段 | 43 字段全景（25 强类型 + 12 extraBody） | 14 组件 | ➕ 覆盖更广 |
 | `reasoning_details` | 12 字段无损往返 | 2 字段（reasoningContent + prefix） | ➕ 本项目更完整 |
 | `usage` | 10 字段 + cache 读写映射 | 4 字段，cache 未映射 | ➕ 本项目更完整 |
 | 多模态 | image + audio + else | DeepSeek 无多模态 | ➕ 本项目特有 |
 | 应用归属头 | `HTTP-Referer` / `X-OpenRouter-Title` / `X-OpenRouter-Categories` | 无 | ➕ 本项目特有 |
+| 结构化输出 | `json_schema` / `json_object` / `text` 三变体，实现 `StructuredOutputChatOptions` | `text` / `json_object` 两变体，不实现 `StructuredOutputChatOptions` | ➕ 本项目支持 `json_schema` |
 | 工具执行 | 模型层不执行，交 Advisor | 同 | ✅ 对齐 |
-| 测试 | 7 单元 + 3 `@Disabled` IT | 14 个测试文件（含多套 IT） | ⚠️ 结构对齐，数量少于官方 |
+| 测试 | 8 个单元测试类（74 个用例）+ 3 个 `@Disabled` IT | 14 个测试文件（含多套 IT） | ⚠️ 结构对齐，数量少于官方 |
 | CI | 无 | GitHub Actions | ⚠️ 本轮不新增 |
 
 深度对比见 [docs/CAPABILITIES.md](docs/CAPABILITIES.md)。
@@ -359,7 +432,7 @@ var chatModel = OpenRouterChatModel.builder()
 JAVA_HOME=E:\code\JDK\Java17 mvn clean verify
 ```
 
-产物是 `target/heiye-spring-ai-model-openrouter-starter-2.0.0.jar`，供其他应用依赖，不是可直接 `java -jar` 启动的 Spring Boot 应用。`verify` 会编译、跑 45 个单元测试并打包，不包含真实 OpenRouter 请求。
+产物是 `target/heiye-spring-ai-model-openrouter-starter-2.0.0.jar`，供其他应用依赖，不是可直接 `java -jar` 启动的 Spring Boot 应用。`verify` 会编译、跑 74 个单元测试并打包，不包含真实 OpenRouter 请求。
 
 真实网络测试默认关闭（`@Disabled`），手动执行时设置 `OPENROUTER_API_KEY` 环境变量。
 
