@@ -297,7 +297,7 @@ var chatModel = OpenRouterChatModel.builder()
 | --- | --- |
 | 构建 | Java 17 · Spring Boot 4.1.0 · Spring AI BOM 2.0.0 · `revision` = 2.0.0 |
 | 包结构 | 根包（Options / ChatModel / AssistantMessage）、`api`、`api.common`、`autoconfigure`、`aot` |
-| Options 契约 | `implements ToolCallingChatOptions`，泛型 Builder + `mutate()` + `clone()` + `combineWith()`，29 个不可变字段 |
+| Options 契约 | `implements ToolCallingChatOptions`，泛型 Builder + `mutate()` + `clone()` + `combineWith()`，30 个不可变字段 |
 | 非流式 | `chatCompletionEntity` 真实实现，走 `RestClient` + 重试 |
 | 流式 | `WebClient` + SSE 解析 + 窗口缝合，`MessageAggregator` 聚合 |
 | 观测 | `ChatModelObservationDocumentation` 埋点，两条链路都覆盖 |
@@ -306,7 +306,7 @@ var chatModel = OpenRouterChatModel.builder()
 | 多模态 | image（URI / String / byte[]）+ audio（byte[]）+ else 文本兜底 |
 | 响应 | `usage` 10 字段（含 cache 读写）、`reasoningDetails` 12 字段、`system_fingerprint`、`openrouter_metadata` |
 | AOT | `OpenRouterRuntimeHints` 注册 Jackson DTO |
-| 测试 | 7 个单元测试类（45 个用例）+ 3 个 `@Disabled` 真实网络 IT |
+| 测试 | 8 个单元测试类（55 个用例）+ 3 个 `@Disabled` 真实网络 IT |
 
 ### 明确不做
 

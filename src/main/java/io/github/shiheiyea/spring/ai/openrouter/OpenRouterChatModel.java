@@ -91,6 +91,9 @@ public class OpenRouterChatModel implements ChatModel {
      */
     public static final ChatModelObservationConvention DEFAULT_OBSERVATION_CONVENTION = new DefaultChatModelObservationConvention();
 
+    /**
+     * 配置项
+     */
     private final OpenRouterChatOptions options;
 
     /**
@@ -98,12 +101,24 @@ public class OpenRouterChatModel implements ChatModel {
      */
     public final RetryTemplate retryTemplate;
 
+    /**
+     * OpenRouter API 客户端
+     */
     private final OpenRouterApi openRouterApi;
 
+    /**
+     * 观测注册表
+     */
     private final ObservationRegistry observationRegistry;
 
+    /**
+     * 工具调用管理器
+     */
     private final ToolCallingManager toolCallingManager;
 
+    /**
+     * 观测约定
+     */
     private ChatModelObservationConvention observationConvention = DEFAULT_OBSERVATION_CONVENTION;
 
     public OpenRouterChatModel(OpenRouterApi openRouterApi, OpenRouterChatOptions options,
@@ -151,22 +166,26 @@ public class OpenRouterChatModel implements ChatModel {
 
                     ChatCompletion chatCompletion = completionEntity.getBody();
                     if (chatCompletion == null) {
-                        logger.warn("No chat completion returned for prompt: " + prompt);
+                        if (logger.isWarnEnabled()) {
+                            logger.warn("No chat completion returned for prompt: " + prompt);
+                        }
                         return new ChatResponse(List.of());
                     }
 
                     List<ChatCompletion.Choice> choices = chatCompletion.choices();
                     if (choices == null) {
-                        logger.warn("No choices returned for prompt: " + prompt);
+                        if (logger.isWarnEnabled()) {
+                            logger.warn("No choices returned for prompt: " + prompt);
+                        }
                         return new ChatResponse(List.of());
                     }
 
                     List<Generation> generations = choices.stream().map(choice -> {
-                        Map<String, Object> metadata = Map.of("id", chatCompletion.id() != null ? chatCompletion.id() : "",
-                                "role", choice.message() != null && choice.message().role() != null
-                                        ? choice.message().role().name() : "",
-                                "index", choice.index() != null ? choice.index() : 0, "finishReason",
-                                choice.finishReason() != null ? choice.finishReason().name() : "");
+                        Map<String, Object> metadata = Map.of(
+                                "id", chatCompletion.id() != null ? chatCompletion.id() : "",
+                                "role", choice.message() != null && choice.message().role() != null ? choice.message().role().name() : "",
+                                "index", choice.index() != null ? choice.index() : 0,
+                                "finishReason", choice.finishReason() != null ? choice.finishReason().name() : "");
                         return buildGeneration(choice, metadata);
                     }).toList();
 
@@ -233,9 +252,10 @@ public class OpenRouterChatModel implements ChatModel {
                             roleMap.putIfAbsent(id, choice.message().role().name());
                         }
 
-                        Map<String, Object> metadata = Map.of("id", id != null ? id : "", "role",
-                                roleMap.getOrDefault(id, ""), "finishReason",
-                                choice.finishReason() != null ? choice.finishReason().name() : "");
+                        Map<String, Object> metadata = Map.of(
+                                "id", id != null ? id : "",
+                                "role", roleMap.getOrDefault(id, ""),
+                                "finishReason", choice.finishReason() != null ? choice.finishReason().name() : "");
                         return buildGeneration(choice, metadata);
                     }).toList();
 
@@ -289,21 +309,17 @@ public class OpenRouterChatModel implements ChatModel {
             if (message.toolCalls() != null) {
                 toolCalls = message.toolCalls()
                         .stream()
-                        .map(toolCall -> new AssistantMessage.ToolCall(toolCall.id(),
-                                toolCall.type() != null ? toolCall.type() : "function",
+                        .map(toolCall -> new AssistantMessage.ToolCall(
+                                toolCall.id(), "function",
                                 toolCall.function() != null ? toolCall.function().name() : null,
                                 toolCall.function() != null ? toolCall.function().arguments() : null))
                         .toList();
             }
         }
 
-        String finishReason = null;
-        if (choice.finishReason() != null) {
-            finishReason = choice.finishReason().name();
-        }
-        else if (choice.nativeFinishReason() != null) {
-            finishReason = choice.nativeFinishReason().name();
-        }
+        // 聚合网关下部分 provider 只回 native_finish_reason
+        String finishReason = choice.finishReason() != null ? choice.finishReason().name()
+                : choice.nativeFinishReason() != null ? choice.nativeFinishReason().name() : "";
 
         ChatGenerationMetadata generationMetadata = ChatGenerationMetadata.builder().finishReason(finishReason).build();
 
@@ -327,21 +343,24 @@ public class OpenRouterChatModel implements ChatModel {
     ChatCompletionRequest createRequest(Prompt prompt, boolean stream) {
         List<ChatCompletionMessage> chatCompletionMessages = new ArrayList<>();
 
+        // 遍历消息列表，构建 ChatCompletionMessage
         for (Message message : prompt.getInstructions()) {
+            // 用户消息或系统消息
             if (message.getMessageType() == MessageType.USER || message.getMessageType() == MessageType.SYSTEM) {
                 chatCompletionMessages.add(new ChatCompletionMessage(toRequestContent(message),
                         ChatCompletionMessage.Role.valueOf(message.getMessageType().name())));
             }
+            // AI 消息
             else if (message.getMessageType() == MessageType.ASSISTANT) {
                 AssistantMessage assistantMessage = (AssistantMessage) message;
                 List<ToolCall> toolCalls = null;
                 if (!CollectionUtils.isEmpty(assistantMessage.getToolCalls())) {
                     toolCalls = assistantMessage.getToolCalls()
                             .stream()
-                            .map(toolCall -> new ToolCall(toolCall.id(), toolCall.type(),
-                                    new ChatCompletionFunction(toolCall.name(), toolCall.arguments())))
+                            .map(toolCall -> new ToolCall(toolCall.id(), toolCall.type(), new ChatCompletionFunction(toolCall.name(), toolCall.arguments())))
                             .toList();
                 }
+                // 思考内容
                 String reasoningContent = null;
                 List<ReasoningDetail> reasoningDetails = null;
                 if (assistantMessage instanceof OpenRouterAssistantMessage openRouterAssistantMessage) {
@@ -352,14 +371,14 @@ public class OpenRouterChatModel implements ChatModel {
                         ChatCompletionMessage.Role.ASSISTANT, null, null, toolCalls, reasoningContent,
                         reasoningDetails, null, null));
             }
+            // 工具消息
             else if (message.getMessageType() == MessageType.TOOL) {
+                // 工具响应消息
                 ToolResponseMessage toolMessage = (ToolResponseMessage) message;
-                toolMessage.getResponses().forEach(response -> Assert.isTrue(response.id() != null,
-                        "ToolResponseMessage must have an id"));
-                toolMessage.getResponses()
-                        .forEach(response -> chatCompletionMessages
-                                .add(new ChatCompletionMessage(response.responseData(), ChatCompletionMessage.Role.TOOL,
-                                        response.name(), response.id(), null)));
+                toolMessage.getResponses().forEach(response -> Assert.isTrue(response.id() != null, "ToolResponseMessage must have an id"));
+
+                // 添加工具响应消息
+                toolMessage.getResponses().forEach(response -> chatCompletionMessages.add(new ChatCompletionMessage(response.responseData(), ChatCompletionMessage.Role.TOOL, response.name(), response.id(), null)));
             }
             else {
                 throw new IllegalArgumentException("Unsupported message type: " + message.getMessageType());
@@ -373,19 +392,20 @@ public class OpenRouterChatModel implements ChatModel {
 
         // 运行期选项优先，缺省值来自模型持有的默认选项
         request = new ChatCompletionRequest(request.messages(), request.stream(),
-                ModelOptionsUtils.mergeOption(requestOptions.getTools(), request.tools()),
+                requestOptions.getTools(),
                 ModelOptionsUtils.mergeOption(request.responseFormat(), request.responseFormat()),
                 requestOptions.getModel(), requestOptions.getMaxTokens(), requestOptions.getTemperature(),
                 requestOptions.getTopP(), requestOptions.getTopK(), requestOptions.getFrequencyPenalty(),
                 requestOptions.getPresencePenalty(), requestOptions.getRepetitionPenalty(), requestOptions.getSeed(),
                 requestOptions.getMinP(), requestOptions.getTopA(), requestOptions.getStopSequences(),
-                request.logitBias(), requestOptions.getTopLogprobs(), requestOptions.getLogprobs(),
+                requestOptions.getLogitBias(), requestOptions.getTopLogprobs(), requestOptions.getLogprobs(),
                 requestOptions.getModels(), requestOptions.getModalities(), requestOptions.getServiceTier(),
                 requestOptions.getUser(), requestOptions.getParallelToolCalls(), requestOptions.getPromptCacheKey(),
                 requestOptions.getSessionId(), requestOptions.getProvider(), requestOptions.getReasoning(),
                 requestOptions.getToolChoice(), requestOptions.getExtraBody());
 
         List<ToolDefinition> toolDefinitions = this.toolCallingManager.resolveToolDefinitions(requestOptions);
+        // 添加工具定义
         if (!CollectionUtils.isEmpty(toolDefinitions)) {
             request = new ChatCompletionRequest(request.messages(), request.stream(),
                     this.getFunctionTools(toolDefinitions), request.responseFormat(), request.model(),
@@ -430,9 +450,11 @@ public class OpenRouterChatModel implements ChatModel {
                     contentParts.add(new OpenRouterApi.ImageContent(new OpenRouterApi.ImageUrl(dataUrl)));
                 }
                 else {
-                    logger.info("Could not process image media with data of type: "
-                            + data.getClass().getSimpleName()
-                            + ". Only java.net.URI, java.lang.String and byte[] are supported.");
+                    if (logger.isInfoEnabled()) {
+                        logger.info("Could not process image media with data of type: "
+                                + (data != null ? data.getClass().getSimpleName() : "null")
+                                + ". Only java.net.URI, java.lang.String and byte[] are supported.");
+                    }
                 }
             }
             else if (mimeType.getType().equalsIgnoreCase("audio")) {
@@ -443,8 +465,11 @@ public class OpenRouterChatModel implements ChatModel {
                             new OpenRouterApi.InputAudio(dataUrl, this.audioFormat(mimeType))));
                 }
                 else {
-                    logger.info("Could not process media with data of type: " + data.getClass().getSimpleName()
-                            + ". Only byte[] is supported for non-image media.");
+                    if (logger.isInfoEnabled()) {
+                        logger.info("Could not process media with data of type: "
+                                + (data != null ? data.getClass().getSimpleName() : "null")
+                                + ". Only byte[] is supported for non-image media.");
+                    }
                 }
             }
             else {
@@ -473,33 +498,32 @@ public class OpenRouterChatModel implements ChatModel {
      * 用量换算。缓存读写的 token 数只在上游给出明细时才有值。
      */
     private DefaultUsage getDefaultUsage(OpenRouterApi.Usage usage) {
+        // 缓存读取的 token 数
         Long cacheReadInputTokens = usage.promptTokensDetails() != null
                 && usage.promptTokensDetails().cachedTokens() != null
-                        ? usage.promptTokensDetails().cachedTokens().longValue() : null;
+                ? usage.promptTokensDetails().cachedTokens().longValue() : null;
+
+        // 缓存写入的 token 数
         Long cacheWriteInputTokens = usage.promptTokensDetails() != null
                 && usage.promptTokensDetails().cacheWriteTokens() != null
-                        ? usage.promptTokensDetails().cacheWriteTokens().longValue() : null;
+                ? usage.promptTokensDetails().cacheWriteTokens().longValue() : null;
+
+        // 总的 token 数
         return new DefaultUsage(usage.promptTokens(), usage.completionTokens(), usage.totalTokens(), usage,
                 cacheReadInputTokens, cacheWriteInputTokens);
     }
 
     private ChatResponseMetadata from(ChatCompletion result, Usage usage) {
         Assert.notNull(result, "OpenRouter ChatCompletion must not be null");
-        ChatResponseMetadata.Builder builder = ChatResponseMetadata.builder();
-        if (result.id() != null) {
-            builder.id(result.id());
-        }
-        if (result.model() != null) {
-            builder.model(result.model());
-        }
-        if (result.created() != null) {
-            builder.keyValue("created", result.created());
-        }
-        if (result.systemFingerprint() != null) {
-            builder.keyValue("system-fingerprint", result.systemFingerprint());
-        }
-        builder.usage(usage);
-        return builder.build();
+
+        // 缺字段补默认值，不用 if 跳过，避免 id/model 落到 null
+        return ChatResponseMetadata.builder()
+                .id(result.id() != null ? result.id() : "")
+                .usage(usage)
+                .model(result.model() != null ? result.model() : "")
+                .keyValue("created", result.created() != null ? result.created() : 0L)
+                .keyValue("system-fingerprint", result.systemFingerprint() != null ? result.systemFingerprint() : "")
+                .build();
     }
 
     @Override

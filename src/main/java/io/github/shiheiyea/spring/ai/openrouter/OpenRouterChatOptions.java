@@ -80,6 +80,8 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
 
     private final List<String> stop;
 
+    private final Map<String, Number> logitBias;
+
     private final Integer topLogprobs;
 
     private final Boolean logprobs;
@@ -114,7 +116,8 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
             OpenRouterApi.@Nullable Reasoning reasoning, @Nullable Integer maxTokens,
             @Nullable Double frequencyPenalty, @Nullable Double presencePenalty, @Nullable Double topP,
             @Nullable Integer topK, @Nullable Integer seed, @Nullable Double minP, @Nullable Double topA,
-            @Nullable Double repetitionPenalty, @Nullable List<String> stop, @Nullable Integer topLogprobs,
+            @Nullable Double repetitionPenalty, @Nullable List<String> stop,
+            @Nullable Map<String, Number> logitBias, @Nullable Integer topLogprobs,
             @Nullable Boolean logprobs, @Nullable List<String> models, @Nullable List<String> modalities,
             @Nullable String serviceTier, @Nullable String user, @Nullable Boolean parallelToolCalls,
             @Nullable String promptCacheKey, @Nullable String sessionId,
@@ -136,6 +139,7 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
         this.topA = topA;
         this.repetitionPenalty = repetitionPenalty;
         this.stop = stop != null ? List.copyOf(stop) : null;
+        this.logitBias = logitBias != null ? Map.copyOf(logitBias) : null;
         this.topLogprobs = topLogprobs;
         this.logprobs = logprobs;
         this.models = models != null ? List.copyOf(models) : null;
@@ -221,6 +225,10 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
         return this.stop;
     }
 
+    public @Nullable Map<String, Number> getLogitBias() {
+        return this.logitBias;
+    }
+
     public @Nullable Integer getTopLogprobs() {
         return this.topLogprobs;
     }
@@ -303,6 +311,7 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
                 .topA(this.topA)
                 .repetitionPenalty(this.repetitionPenalty)
                 .stop(this.stop)
+                .logitBias(this.logitBias)
                 .topLogprobs(this.topLogprobs)
                 .logprobs(this.logprobs)
                 .models(this.models)
@@ -325,9 +334,10 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
     public int hashCode() {
         return Objects.hash(this.model, this.temperature, this.stream, this.reasoning, this.maxTokens,
                 this.frequencyPenalty, this.presencePenalty, this.topP, this.topK, this.seed, this.minP, this.topA,
-                this.repetitionPenalty, this.stop, this.topLogprobs, this.logprobs, this.models, this.modalities,
-                this.serviceTier, this.user, this.parallelToolCalls, this.promptCacheKey, this.sessionId, this.provider,
-                this.tools, this.toolChoice, this.extraBody, this.toolCallbacks, this.toolContext);
+                this.repetitionPenalty, this.stop, this.logitBias, this.topLogprobs, this.logprobs, this.models,
+                this.modalities, this.serviceTier, this.user, this.parallelToolCalls, this.promptCacheKey,
+                this.sessionId, this.provider, this.tools, this.toolChoice, this.extraBody, this.toolCallbacks,
+                this.toolContext);
     }
 
     @Override
@@ -348,7 +358,8 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
                 && Objects.equals(this.seed, that.seed) && Objects.equals(this.minP, that.minP)
                 && Objects.equals(this.topA, that.topA)
                 && Objects.equals(this.repetitionPenalty, that.repetitionPenalty)
-                && Objects.equals(this.stop, that.stop) && Objects.equals(this.topLogprobs, that.topLogprobs)
+                && Objects.equals(this.stop, that.stop) && Objects.equals(this.logitBias, that.logitBias)
+                && Objects.equals(this.topLogprobs, that.topLogprobs)
                 && Objects.equals(this.logprobs, that.logprobs) && Objects.equals(this.models, that.models)
                 && Objects.equals(this.modalities, that.modalities)
                 && Objects.equals(this.serviceTier, that.serviceTier) && Objects.equals(this.user, that.user)
@@ -368,8 +379,9 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
                 + ", frequencyPenalty=" + this.frequencyPenalty + ", presencePenalty=" + this.presencePenalty
                 + ", topP=" + this.topP + ", topK=" + this.topK + ", seed=" + this.seed + ", minP=" + this.minP
                 + ", topA=" + this.topA + ", repetitionPenalty=" + this.repetitionPenalty + ", stop=" + this.stop
-                + ", topLogprobs=" + this.topLogprobs + ", logprobs=" + this.logprobs + ", models=" + this.models
-                + ", modalities=" + this.modalities + ", serviceTier=" + this.serviceTier + ", user=" + this.user
+                + ", logitBias=" + this.logitBias + ", topLogprobs=" + this.topLogprobs + ", logprobs="
+                + this.logprobs + ", models=" + this.models + ", modalities=" + this.modalities + ", serviceTier="
+                + this.serviceTier + ", user=" + this.user
                 + ", parallelToolCalls=" + this.parallelToolCalls + ", promptCacheKey=" + this.promptCacheKey
                 + ", sessionId=" + this.sessionId + ", provider=" + this.provider + ", tools=" + this.tools
                 + ", toolChoice=" + this.toolChoice + ", extraBody=" + this.extraBody + ", toolCallbacks="
@@ -410,6 +422,8 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
         protected @Nullable Double repetitionPenalty;
 
         protected @Nullable List<String> stop;
+
+        protected @Nullable Map<String, Number> logitBias;
 
         protected @Nullable Integer topLogprobs;
 
@@ -454,6 +468,7 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
             copy.topA = this.topA;
             copy.repetitionPenalty = this.repetitionPenalty;
             copy.stop = this.stop;
+            copy.logitBias = this.logitBias;
             copy.topLogprobs = this.topLogprobs;
             copy.logprobs = this.logprobs;
             copy.models = this.models;
@@ -558,6 +573,14 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
             return stopSequences(stop);
         }
 
+        /**
+         * token 级偏置，键是 token id 的字符串形式，值域 -100 到 100。
+         */
+        public B logitBias(@Nullable Map<String, Number> logitBias) {
+            this.logitBias = logitBias;
+            return self();
+        }
+
         public B topLogprobs(@Nullable Integer topLogprobs) {
             this.topLogprobs = topLogprobs;
             return self();
@@ -647,6 +670,7 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
                 this.repetitionPenalty = that.repetitionPenalty != null ? that.repetitionPenalty
                         : this.repetitionPenalty;
                 this.stop = that.stop != null ? that.stop : this.stop;
+                this.logitBias = that.logitBias != null ? that.logitBias : this.logitBias;
                 this.topLogprobs = that.topLogprobs != null ? that.topLogprobs : this.topLogprobs;
                 this.logprobs = that.logprobs != null ? that.logprobs : this.logprobs;
                 this.models = that.models != null ? that.models : this.models;
@@ -687,9 +711,10 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
         public OpenRouterChatOptions build() {
             return new OpenRouterChatOptions(this.model, this.temperature, this.stream, this.reasoning, this.maxTokens,
                     this.frequencyPenalty, this.presencePenalty, this.topP, this.topK, this.seed, this.minP, this.topA,
-                    this.repetitionPenalty, this.stop, this.topLogprobs, this.logprobs, this.models, this.modalities,
-                    this.serviceTier, this.user, this.parallelToolCalls, this.promptCacheKey, this.sessionId,
-                    this.provider, this.tools, this.toolChoice, this.extraBody, this.toolCallbacks, this.toolContext);
+                    this.repetitionPenalty, this.stop, this.logitBias, this.topLogprobs, this.logprobs, this.models,
+                    this.modalities, this.serviceTier, this.user, this.parallelToolCalls, this.promptCacheKey,
+                    this.sessionId, this.provider, this.tools, this.toolChoice, this.extraBody, this.toolCallbacks,
+                    this.toolContext);
         }
 
     }

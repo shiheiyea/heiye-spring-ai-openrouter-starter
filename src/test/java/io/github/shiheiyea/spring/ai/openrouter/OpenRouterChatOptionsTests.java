@@ -107,6 +107,28 @@ class OpenRouterChatOptionsTests extends AbstractChatOptionsTests<OpenRouterChat
     }
 
     @Test
+    void testLogitBiasIsDefensivelyCopied() {
+        Map<String, Number> logitBias = new java.util.HashMap<>();
+        logitBias.put("50256", -100);
+
+        OpenRouterChatOptions options = OpenRouterChatOptions.builder().logitBias(logitBias).build();
+        logitBias.put("1234", 5);
+
+        assertThat(options.getLogitBias()).containsOnlyKeys("50256");
+    }
+
+    @Test
+    void testCombineWithLogitBias() {
+        OpenRouterChatOptions base = OpenRouterChatOptions.builder().logitBias(Map.of("50256", -100)).build();
+        OpenRouterChatOptions override = OpenRouterChatOptions.builder().logitBias(Map.of("1234", 5)).build();
+
+        assertThat(base.mutate().combineWith(override.mutate()).build().getLogitBias())
+                .containsOnlyKeys("1234");
+        assertThat(base.mutate().combineWith(OpenRouterChatOptions.builder().build().mutate()).build()
+                .getLogitBias()).containsOnlyKeys("50256");
+    }
+
+    @Test
     void testStopSequencesAlias() {
         OpenRouterChatOptions options = OpenRouterChatOptions.builder().stop(List.of("STOP")).build();
 
