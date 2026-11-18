@@ -32,15 +32,18 @@ import org.jspecify.annotations.Nullable;
 
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.model.tool.DefaultToolCallingChatOptions;
+import org.springframework.ai.model.tool.StructuredOutputChatOptions;
 import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.util.Assert;
+import org.springframework.util.StringUtils;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi;
+import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ResponseFormat.Type;
 
 /**
  * OpenRouter 聊天选项。
@@ -48,9 +51,12 @@ import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi;
  * 与官方模块的差异在于字段规模：OpenRouter 的请求体有 43 个键，这里把其中高频的
  * 25 个做成强类型字段，其余 12 个低频字段通过 {@code extraBody} 原样透传。
  * 避免为一个罕用字段改一次选项类。
+ *
+ * {@code responseFormat} 是结构化输出的 Options 侧载体，对应请求体的 {@code response_format}，
+ * 不计入上面那 43 个键。
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class OpenRouterChatOptions implements ToolCallingChatOptions {
+public class OpenRouterChatOptions implements ToolCallingChatOptions, StructuredOutputChatOptions {
 
     private final String model;
 
@@ -112,6 +118,9 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
 
     private final Map<String, Object> toolContext;
 
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    private final ResponseFormat responseFormat;
+
     protected OpenRouterChatOptions(@Nullable String model, @Nullable Double temperature, @Nullable Boolean stream,
             OpenRouterApi.@Nullable Reasoning reasoning, @Nullable Integer maxTokens,
             @Nullable Double frequencyPenalty, @Nullable Double presencePenalty, @Nullable Double topP,
@@ -123,7 +132,8 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
             @Nullable String promptCacheKey, @Nullable String sessionId,
             OpenRouterApi.@Nullable ProviderPreferences provider, @Nullable List<OpenRouterApi.FunctionTool> tools,
             @Nullable Object toolChoice, @Nullable Map<String, Object> extraBody,
-            @Nullable List<ToolCallback> toolCallbacks, @Nullable Map<String, Object> toolContext) {
+            @Nullable List<ToolCallback> toolCallbacks, @Nullable Map<String, Object> toolContext,
+            @Nullable ResponseFormat responseFormat) {
         // OpenRouter 没有默认模型，缺省时沿用接口层声明的模型，保证请求始终带 model
         this.model = model != null ? model : OpenRouterApi.DEFAULT_CHAT_MODEL.getValue();
         this.temperature = temperature != null ? temperature : 0.7;
@@ -155,6 +165,129 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
         this.extraBody = extraBody != null ? Map.copyOf(extraBody) : null;
         this.toolCallbacks = toolCallbacks != null ? List.copyOf(toolCallbacks) : null;
         this.toolContext = toolContext != null ? Map.copyOf(toolContext) : null;
+        this.responseFormat = responseFormat;
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class ResponseFormat {
+
+        private Type type = Type.TEXT;
+
+        private String jsonSchema;
+
+        private String name;
+
+        private Boolean strict;
+
+        public ResponseFormat() {
+        }
+
+        public ResponseFormat(Type type, String jsonSchema, String name, Boolean strict) {
+            this.type = type;
+            this.jsonSchema = jsonSchema;
+            this.name = name;
+            this.strict = strict;
+        }
+
+        public Type getType() {
+            return this.type;
+        }
+
+        public void setType(Type type) {
+            this.type = type;
+        }
+
+        public String getJsonSchema() {
+            return this.jsonSchema;
+        }
+
+        public void setJsonSchema(String jsonSchema) {
+            this.jsonSchema = jsonSchema;
+        }
+
+        public String getName() {
+            return this.name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        /**
+         * 严格模式开关，缺省由请求构建期补成开启。
+         *
+         * 与工具调用的 strict 是两个独立字段，这里只作用于 {@code response_format.json_schema}。
+         */
+        public Boolean getStrict() {
+            return this.strict;
+        }
+
+        public void setStrict(Boolean strict) {
+            this.strict = strict;
+        }
+
+        @Override
+        public boolean equals(@Nullable Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            ResponseFormat that = (ResponseFormat) o;
+            return this.type == that.type && Objects.equals(this.jsonSchema, that.jsonSchema)
+                    && Objects.equals(this.name, that.name) && Objects.equals(this.strict, that.strict);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(this.type, this.jsonSchema, this.name, this.strict);
+        }
+
+        @Override
+        public String toString() {
+            return "ResponseFormat [type=" + this.type + ", jsonSchema=" + this.jsonSchema + ", name=" + this.name
+                    + ", strict=" + this.strict + "]";
+        }
+
+        public static Builder builder() {
+            return new Builder();
+        }
+
+        public static class Builder {
+
+            private final ResponseFormat responseFormat = new ResponseFormat();
+
+            public Builder type(Type type) {
+                this.responseFormat.setType(type);
+                return this;
+            }
+
+            /**
+             * 设置 schema 字符串，同时把类型切到 json_schema，省去一次显式调用。
+             */
+            public Builder jsonSchema(String jsonSchema) {
+                this.responseFormat.setJsonSchema(jsonSchema);
+                this.responseFormat.setType(Type.JSON_SCHEMA);
+                return this;
+            }
+
+            public Builder name(String name) {
+                this.responseFormat.setName(name);
+                return this;
+            }
+
+            public Builder strict(Boolean strict) {
+                this.responseFormat.setStrict(strict);
+                return this;
+            }
+
+            public ResponseFormat build() {
+                return this.responseFormat;
+            }
+
+        }
+
     }
 
     public static Builder builder() {
@@ -281,6 +414,18 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
         return this.extraBody;
     }
 
+    public @Nullable ResponseFormat getResponseFormat() {
+        return this.responseFormat;
+    }
+
+    /**
+     * 结构化输出的 schema 字符串，由 {@code responseFormat} 派生，不单独存一份。
+     */
+    @Override
+    public @Nullable String getOutputSchema() {
+        return this.responseFormat != null ? this.responseFormat.getJsonSchema() : null;
+    }
+
     @Override
     @JsonIgnore
     public @Nullable List<ToolCallback> getToolCallbacks() {
@@ -327,7 +472,9 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
                 .toolChoice(this.toolChoice)
                 .extraBody(this.extraBody)
                 .toolCallbacks(this.toolCallbacks)
-                .toolContext(this.toolContext);
+                .toolContext(this.toolContext)
+                // StructuredOutputChatOptions
+                .responseFormat(this.responseFormat);
     }
 
     @Override
@@ -337,7 +484,7 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
                 this.repetitionPenalty, this.stop, this.logitBias, this.topLogprobs, this.logprobs, this.models,
                 this.modalities, this.serviceTier, this.user, this.parallelToolCalls, this.promptCacheKey,
                 this.sessionId, this.provider, this.tools, this.toolChoice, this.extraBody, this.toolCallbacks,
-                this.toolContext);
+                this.toolContext, this.responseFormat);
     }
 
     @Override
@@ -369,7 +516,8 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
                 && Objects.equals(this.tools, that.tools) && Objects.equals(this.toolChoice, that.toolChoice)
                 && Objects.equals(this.extraBody, that.extraBody)
                 && Objects.equals(this.toolCallbacks, that.toolCallbacks)
-                && Objects.equals(this.toolContext, that.toolContext);
+                && Objects.equals(this.toolContext, that.toolContext)
+                && Objects.equals(this.responseFormat, that.responseFormat);
     }
 
     @Override
@@ -385,7 +533,8 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
                 + ", parallelToolCalls=" + this.parallelToolCalls + ", promptCacheKey=" + this.promptCacheKey
                 + ", sessionId=" + this.sessionId + ", provider=" + this.provider + ", tools=" + this.tools
                 + ", toolChoice=" + this.toolChoice + ", extraBody=" + this.extraBody + ", toolCallbacks="
-                + this.toolCallbacks + ", toolContext=" + this.toolContext + "]";
+                + this.toolCallbacks + ", toolContext=" + this.toolContext + ", responseFormat="
+                + this.responseFormat + "]";
     }
 
     public static class Builder extends AbstractBuilder<Builder> {
@@ -393,7 +542,7 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
     }
 
     protected abstract static class AbstractBuilder<B extends AbstractBuilder<B>>
-            extends DefaultToolCallingChatOptions.Builder<B> {
+            extends DefaultToolCallingChatOptions.Builder<B> implements StructuredOutputChatOptions.Builder<B> {
 
         protected @Nullable String model;
 
@@ -451,6 +600,8 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
 
         protected @Nullable Map<String, Object> extraBody;
 
+        protected @Nullable ResponseFormat responseFormat;
+
         @Override
         public B clone() {
             B copy = super.clone();
@@ -482,6 +633,7 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
             copy.tools = this.tools;
             copy.toolChoice = this.toolChoice;
             copy.extraBody = this.extraBody;
+            copy.responseFormat = this.responseFormat;
             return copy;
         }
 
@@ -651,6 +803,33 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
             return self();
         }
 
+        /**
+         * 直接给出完整的响应格式，三种类型（text / json_object / json_schema）都能表达。
+         */
+        public B responseFormat(@Nullable ResponseFormat responseFormat) {
+            this.responseFormat = responseFormat;
+            return self();
+        }
+
+        /**
+         * 只给 schema 字符串时，自动补成 {@code json_schema} 类型的响应格式。
+         *
+         * 传 null 或空白表示清空响应格式，回到不限制的状态。
+         */
+        @Override
+        public B outputSchema(@Nullable String outputSchema) {
+            if (!StringUtils.hasText(outputSchema)) {
+                this.responseFormat = null;
+            }
+            else {
+                this.responseFormat = ResponseFormat.builder()
+                    .type(Type.JSON_SCHEMA)
+                    .jsonSchema(outputSchema)
+                    .build();
+            }
+            return self();
+        }
+
         @Override
         public B combineWith(ChatOptions.Builder<?> other) {
             super.combineWith(other);
@@ -683,6 +862,7 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
                 this.sessionId = that.sessionId != null ? that.sessionId : this.sessionId;
                 this.provider = that.provider != null ? that.provider : this.provider;
                 this.toolChoice = that.toolChoice != null ? that.toolChoice : this.toolChoice;
+                this.responseFormat = that.responseFormat != null ? that.responseFormat : this.responseFormat;
                 if (that.tools != null) {
                     if (this.tools == null) {
                         this.tools = new ArrayList<>(that.tools);
@@ -714,7 +894,7 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions {
                     this.repetitionPenalty, this.stop, this.logitBias, this.topLogprobs, this.logprobs, this.models,
                     this.modalities, this.serviceTier, this.user, this.parallelToolCalls, this.promptCacheKey,
                     this.sessionId, this.provider, this.tools, this.toolChoice, this.extraBody, this.toolCallbacks,
-                    this.toolContext);
+                    this.toolContext, this.responseFormat);
         }
 
     }

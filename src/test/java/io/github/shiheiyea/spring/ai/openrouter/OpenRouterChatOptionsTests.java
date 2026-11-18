@@ -25,6 +25,7 @@ import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
+import org.springframework.ai.model.tool.StructuredOutputChatOptions;
 import org.springframework.ai.test.options.AbstractChatOptionsTests;
 
 import io.github.shiheiyea.spring.ai.openrouter.OpenRouterChatOptions.Builder;
@@ -133,6 +134,101 @@ class OpenRouterChatOptionsTests extends AbstractChatOptionsTests<OpenRouterChat
         OpenRouterChatOptions options = OpenRouterChatOptions.builder().stop(List.of("STOP")).build();
 
         assertThat(options.getStopSequences()).containsExactly("STOP");
+    }
+
+    @Test
+    void testResponseFormatDefaultsToNull() {
+        OpenRouterChatOptions options = OpenRouterChatOptions.builder().build();
+
+        assertThat(options.getResponseFormat()).isNull();
+        assertThat(options.getOutputSchema()).isNull();
+    }
+
+    @Test
+    void testOutputSchemaWritesThroughToResponseFormat() {
+        String schema = "{\"type\":\"object\",\"properties\":{\"title\":{\"type\":\"string\"}}}";
+
+        OpenRouterChatOptions options = OpenRouterChatOptions.builder().outputSchema(schema).build();
+
+        assertThat(options.getResponseFormat()).isNotNull();
+        assertThat(options.getResponseFormat().getType())
+                .isEqualTo(OpenRouterApi.ResponseFormat.Type.JSON_SCHEMA);
+        // 逐字相等，证明中间没有重新序列化
+        assertThat(options.getResponseFormat().getJsonSchema()).isEqualTo(schema);
+        assertThat(options.getOutputSchema()).isEqualTo(schema);
+    }
+
+    @Test
+    void testOutputSchemaRoundTripsThroughMutate() {
+        String schema = "{\"type\":\"object\"}";
+
+        OpenRouterChatOptions options = OpenRouterChatOptions.builder().outputSchema(schema).build();
+        OpenRouterChatOptions mutated = options.mutate().build();
+
+        assertThat(mutated.getOutputSchema()).isEqualTo(schema);
+        assertThat(mutated).isEqualTo(options);
+    }
+
+    @Test
+    void testResponseFormatSurvivesClone() {
+        String schema = "{\"type\":\"object\"}";
+
+        OpenRouterChatOptions options = OpenRouterChatOptions.builder().outputSchema(schema).build();
+        OpenRouterChatOptions.Builder cloned = options.mutate().clone();
+
+        assertThat(cloned.build().getOutputSchema()).isEqualTo(schema);
+    }
+
+    @Test
+    void testResponseFormatSurvivesCombineWith() {
+        String schema = "{\"type\":\"object\"}";
+
+        OpenRouterChatOptions base = OpenRouterChatOptions.builder().build();
+        OpenRouterChatOptions override = OpenRouterChatOptions.builder().outputSchema(schema).build();
+
+        OpenRouterChatOptions merged = base.mutate().combineWith(override.mutate()).build();
+
+        assertThat(merged.getOutputSchema()).isEqualTo(schema);
+    }
+
+    @Test
+    void testImplementsStructuredOutputChatOptions() {
+        assertThat(OpenRouterChatOptions.class).isAssignableTo(StructuredOutputChatOptions.class);
+
+        StructuredOutputChatOptions structured = OpenRouterChatOptions.builder().build();
+
+        StructuredOutputChatOptions built = (StructuredOutputChatOptions) structured.mutate().outputSchema("{}").build();
+
+        assertThat(built.getOutputSchema()).isEqualTo("{}");
+    }
+
+    @Test
+    void testResponseFormatTypeAndStrictAreSettable() {
+        OpenRouterChatOptions options = OpenRouterChatOptions.builder()
+                .responseFormat(OpenRouterChatOptions.ResponseFormat.builder()
+                        .type(OpenRouterApi.ResponseFormat.Type.JSON_OBJECT)
+                        .strict(false)
+                        .name("my_schema")
+                        .build())
+                .build();
+
+        assertThat(options.getResponseFormat().getType())
+                .isEqualTo(OpenRouterApi.ResponseFormat.Type.JSON_OBJECT);
+        assertThat(options.getResponseFormat().getStrict()).isFalse();
+        assertThat(options.getResponseFormat().getName()).isEqualTo("my_schema");
+    }
+
+    @Test
+    void testResponseFormatEqualsAndHashCode() {
+        OpenRouterChatOptions.ResponseFormat first = OpenRouterChatOptions.ResponseFormat.builder()
+                .jsonSchema("{\"type\":\"object\"}")
+                .build();
+        OpenRouterChatOptions.ResponseFormat second = OpenRouterChatOptions.ResponseFormat.builder()
+                .jsonSchema("{\"type\":\"object\"}")
+                .build();
+
+        assertThat(first).isEqualTo(second).hasSameHashCodeAs(second);
+        assertThat(first.toString()).contains("JSON_SCHEMA");
     }
 
     private OpenRouterApi.FunctionTool functionTool(String name) {
