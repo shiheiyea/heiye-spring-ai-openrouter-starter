@@ -585,10 +585,14 @@ public class OpenRouterChatModel implements ChatModel {
 
     /**
      * 调用方没带选项时补上模型默认选项，带上选项则原样放行。
+     *
+     * <p>这里刻意不用 {@code prompt.mutate()}：它内部的 {@code instructionsCopy()} 会把
+     * {@link OpenRouterAssistantMessage} 重建成普通 {@code AssistantMessage}，历史里的
+     * {@code reasoningContent} 与 {@code reasoningDetails} 会在补选项这一步被悄悄丢掉。</p>
      */
     private Prompt buildRequestPrompt(Prompt prompt) {
         if (prompt.getOptions() == null) {
-            return prompt.mutate().chatOptions(this.getOptions()).build();
+            return new Prompt(prompt.getInstructions(), this.getOptions());
         }
         return prompt;
     }
