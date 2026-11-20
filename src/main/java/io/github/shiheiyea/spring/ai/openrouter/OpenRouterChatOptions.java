@@ -663,6 +663,26 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions, Structured
             return self();
         }
 
+        /**
+         * 只设置推理强度，其余推理字段保持不变。
+         * <p>
+         * 已有 {@code reasoning} 时只替换 {@code effort}，不会丢掉此前设置的
+         * {@code max_tokens} / {@code exclude} 等字段；没有时等价于
+         * {@code reasoning(Reasoning.effort(effort))}。
+         * <p>
+         * 注意各模型支持的档位不同，不在其 {@code supported_efforts} 内的档位会被上游
+         * 映射到最接近的一档；推理 token 计入 {@code maxTokens}，调高强度时通常要同步调大。
+         */
+        public B reasoningEffort(OpenRouterApi.Reasoning.@Nullable Effort effort) {
+            if (this.reasoning != null) {
+                this.reasoning = this.reasoning.withEffort(effort);
+            }
+            else if (effort != null) {
+                this.reasoning = OpenRouterApi.Reasoning.effort(effort);
+            }
+            return self();
+        }
+
         @Override
         public B maxTokens(@Nullable Integer maxTokens) {
             this.maxTokens = maxTokens;

@@ -260,14 +260,44 @@ chatModel.stream(new Prompt("解释一个适合使用动态规划的问题。", 
 
 ### 推理内容
 
-开启推理后，推理文本与推理详情分别通过 `OpenRouterAssistantMessage` 暴露：
+只调思考强度时用 `reasoningEffort`，其余推理字段保持默认：
 
 ```java
 var options = OpenRouterChatOptions.builder()
-        .reasoning(new OpenRouterApi.Reasoning(
-                OpenRouterApi.Reasoning.Effort.HIGH, null, null, null, null, null, null))
+        .reasoningEffort(OpenRouterApi.Reasoning.Effort.HIGH)
+        .build();
+```
+
+需要控制推理预算、或只想统计不想拿到推理文本时，用静态工厂：
+
+```java
+var budgeted = OpenRouterChatOptions.builder()
+        .reasoning(OpenRouterApi.Reasoning.budget(2048))   // 只给推理 token 预算
         .build();
 
+var hidden = OpenRouterChatOptions.builder()
+        .reasoning(OpenRouterApi.Reasoning.excluded())     // 开启推理但不回传推理文本
+        .build();
+```
+
+需要同时指定多个维度时才用完整构造器：
+
+```java
+var detailed = OpenRouterChatOptions.builder()
+        .reasoning(new OpenRouterApi.Reasoning(
+                OpenRouterApi.Reasoning.Effort.HIGH,   // effort
+                2048,                                  // max_tokens
+                false,                                 // exclude
+                true,                                  // enabled
+                OpenRouterApi.Reasoning.Summary.AUTO,  // summary
+                OpenRouterApi.Reasoning.Mode.STANDARD, // mode
+                OpenRouterApi.Reasoning.Context.CURRENT_TURN))
+        .build();
+```
+
+开启推理后，推理文本与推理详情分别通过 `OpenRouterAssistantMessage` 暴露：
+
+```java
 chatModel.stream(new Prompt("解释一个适合使用动态规划的问题。", options))
         .doOnNext(response -> {
             if (response.getResult().getOutput() instanceof OpenRouterAssistantMessage message) {
@@ -290,6 +320,16 @@ var history = List.of(
         new UserMessage("再加上 3 呢？"));
 chatModel.call(new Prompt(history, options));
 ```
+
+两个使用注意：
+
+- **各模型支持的档位不同。** `GET /api/v1/models` 的 `reasoning.supported_efforts` 给出每个模型的范围，
+  例如 `google/gemini-4-argon` 只支持 `high` / `medium` / `low` 且推理不可关闭（传 `none` 返回 400），
+  `openai/gpt-6-luna` 支持 `max` / `xhigh` / `high` / `medium` / `low` / `none`。传了范围外的档位
+  通常不会报错，上游会映射到最接近的一档。
+- **推理 token 计入 `maxTokens`。** 强度调高而 `maxTokens` 不变时，推理可能吃掉整个预算，
+  表现为 `finish_reason=length` 且正文为空。调高强度时请同步调大 `maxTokens`，
+  或用 `Reasoning.budget(...)` 单独给推理预算。
 
 ### 多模态输入
 
@@ -570,6 +610,7 @@ spring:
 7. **`prefix` 删除**：`OpenRouterAssistantMessage` 不再有 `prefix`，新增 `reasoningDetails`。
 8. **`max_tokens` → `max_completion_tokens`**：请求字段名变化，`maxTokens(...)` 方法名不变。
 9. **`reasoning` 强类型化**：`effort` 从 3 档扩展到 7 档，新增 `summary`、`mode`、`context`。原有 `low` / `medium` / `high` 取值继续可用。
+   只调强度时不必再补一串 `null`，改用 `builder.reasoningEffort(Effort.HIGH)` 或 `Reasoning.effort(...)`。
 10. **默认 temperature 调整**：1.1.0 的默认值是 `1.0`，2.0.0 改为 `0.7`；显式配置过的不受影响。
 
 ## 构建与测试

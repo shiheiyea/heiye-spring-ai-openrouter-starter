@@ -231,6 +231,64 @@ class OpenRouterChatOptionsTests extends AbstractChatOptionsTests<OpenRouterChat
         assertThat(first.toString()).contains("JSON_SCHEMA");
     }
 
+    @Test
+    void testReasoningEffortCreatesReasoningFromScratch() {
+        OpenRouterChatOptions options = OpenRouterChatOptions.builder()
+                .reasoningEffort(OpenRouterApi.Reasoning.Effort.HIGH)
+                .build();
+
+        assertThat(options.getReasoning()).isNotNull();
+        assertThat(options.getReasoning().effort()).isEqualTo(OpenRouterApi.Reasoning.Effort.HIGH);
+        assertThat(options.getReasoning().maxTokens()).isNull();
+        assertThat(options.getReasoning().exclude()).isNull();
+    }
+
+    @Test
+    void testReasoningEffortKeepsOtherReasoningFields() {
+        OpenRouterChatOptions options = OpenRouterChatOptions.builder()
+                .reasoning(OpenRouterApi.Reasoning.budget(2048))
+                .reasoningEffort(OpenRouterApi.Reasoning.Effort.LOW)
+                .build();
+
+        assertThat(options.getReasoning().effort()).isEqualTo(OpenRouterApi.Reasoning.Effort.LOW);
+        // 此前设的预算不能被静默丢掉
+        assertThat(options.getReasoning().maxTokens()).isEqualTo(2048);
+    }
+
+    @Test
+    void testReasoningEffortNullLeavesReasoningAbsent() {
+        assertThat(OpenRouterChatOptions.builder().reasoningEffort(null).build().getReasoning()).isNull();
+    }
+
+    @Test
+    void testReasoningStaticFactories() {
+        assertThat(OpenRouterApi.Reasoning.effort(OpenRouterApi.Reasoning.Effort.MAX).maxTokens()).isNull();
+
+        OpenRouterApi.Reasoning budget = OpenRouterApi.Reasoning.budget(1024);
+        assertThat(budget.maxTokens()).isEqualTo(1024);
+        assertThat(budget.effort()).isNull();
+
+        OpenRouterApi.Reasoning excluded = OpenRouterApi.Reasoning.excluded();
+        assertThat(excluded.exclude()).isTrue();
+        assertThat(excluded.enabled()).isTrue();
+    }
+
+    @Test
+    void testReasoningWithEffortPreservesBudget() {
+        OpenRouterApi.Reasoning original = new OpenRouterApi.Reasoning(null, 512, true, true,
+                OpenRouterApi.Reasoning.Summary.AUTO, OpenRouterApi.Reasoning.Mode.PRO,
+                OpenRouterApi.Reasoning.Context.CURRENT_TURN);
+
+        OpenRouterApi.Reasoning updated = original.withEffort(OpenRouterApi.Reasoning.Effort.XHIGH);
+
+        assertThat(updated.effort()).isEqualTo(OpenRouterApi.Reasoning.Effort.XHIGH);
+        assertThat(updated.maxTokens()).isEqualTo(512);
+        assertThat(updated.exclude()).isTrue();
+        assertThat(updated.summary()).isEqualTo(OpenRouterApi.Reasoning.Summary.AUTO);
+        assertThat(updated.mode()).isEqualTo(OpenRouterApi.Reasoning.Mode.PRO);
+        assertThat(updated.context()).isEqualTo(OpenRouterApi.Reasoning.Context.CURRENT_TURN);
+    }
+
     private OpenRouterApi.FunctionTool functionTool(String name) {
         return new OpenRouterApi.FunctionTool(OpenRouterApi.FunctionTool.Type.FUNCTION,
                 new OpenRouterApi.FunctionTool.Function(name, "", "{}"));

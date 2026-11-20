@@ -679,6 +679,39 @@ public class OpenRouterApi {
 
             @JsonProperty("context") Context context) {
 
+        /**
+         * 只指定推理强度，其余字段留空由上游取默认值。
+         * <p>
+         * 覆盖「只想调一下思考强度」这个最常见场景，避免写出一串 null。
+         */
+        public static Reasoning effort(Effort effort) {
+            return new Reasoning(effort, null, null, null, null, null, null);
+        }
+
+        /**
+         * 只指定推理 token 预算，强度由上游决定。
+         * <p>
+         * 推理 token 计入 {@code max_tokens}，预算过大会挤占正文。
+         */
+        public static Reasoning budget(int maxTokens) {
+            return new Reasoning(null, maxTokens, null, null, null, null, null);
+        }
+
+        /**
+         * 开启推理但不回传推理内容，只保留 {@code usage} 里的推理 token 统计。
+         */
+        public static Reasoning excluded() {
+            return new Reasoning(null, null, true, true, null, null, null);
+        }
+
+        /**
+         * 换一个推理强度，保留其余字段。
+         */
+        public Reasoning withEffort(@Nullable Effort effort) {
+            return new Reasoning(effort, this.maxTokens, this.exclude, this.enabled, this.summary, this.mode,
+                    this.context);
+        }
+
         public enum Effort {
 
             @JsonProperty("max")
