@@ -507,9 +507,11 @@ public class OpenRouterChatModel implements ChatModel {
             else if (mimeType.getType().equalsIgnoreCase("audio")) {
                 Object data = media.getData();
                 if (data instanceof byte[] bytes) {
-                    String dataUrl = "data:" + mimeType + ";base64," + Base64.getEncoder().encodeToString(bytes);
+                    // 音频与图片不同：input_audio.data 只接受裸 base64，
+                    // 带上 "data:audio/wav;base64," 前缀会被上游判定为解码失败。
                     contentParts.add(new OpenRouterApi.AudioContent(
-                            new OpenRouterApi.InputAudio(dataUrl, this.audioFormat(mimeType))));
+                            new OpenRouterApi.InputAudio(Base64.getEncoder().encodeToString(bytes),
+                                    this.audioFormat(mimeType))));
                 }
                 else {
                     if (logger.isInfoEnabled()) {

@@ -20,6 +20,7 @@
 
 package io.github.shiheiyea.spring.ai.openrouter;
 
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 
@@ -28,7 +29,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.content.Media;
 import org.springframework.ai.util.JsonHelper;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.util.MimeType;
 
 import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi;
 import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ChatCompletionMessage;
@@ -350,6 +354,38 @@ class OpenRouterChatCompletionRequestTests {
         assertThat(request.tools()).hasSize(1);
         assertThat(request.responseFormat()).isNotNull();
         assertThat(request.responseFormat().jsonSchema().schema()).containsKey("type");
+    }
+
+    @Test
+    void imageBytesBecomeDataUrl() {
+        byte[] png = { (byte) 0x89, 'P', 'N', 'G' };
+        Media image = new Media(Media.Format.IMAGE_PNG, new ByteArrayResource(png));
+
+        UserMessage userMessage = UserMessage.builder().text("describe").media(image).build();
+        ChatCompletionRequest request = this.client
+                .createRequest(new Prompt(userMessage, OpenRouterChatOptions.builder().build()), false);
+
+        String json = new JsonHelper().toJson(request);
+        assertThat(json).contains("\"type\":\"image_url\"");
+        assertThat(json).contains("\"url\":\"data:image/png;base64," + Base64.getEncoder().encodeToString(png) + "\"");
+    }
+
+    @Test
+    void audioBytesBecomeBareBase64WithoutDataUrlPrefix() {
+        byte[] wav = { 'R', 'I', 'F', 'F' };
+        Media audio = new Media(new MimeType("audio", "wav"),
+                new ByteArrayResource(wav));
+
+        UserMessage userMessage = UserMessage.builder().text("transcribe").media(audio).build();
+        ChatCompletionRequest request = this.client
+                .createRequest(new Prompt(userMessage, OpenRouterChatOptions.builder().build()), false);
+
+        String json = new JsonHelper().toJson(request);
+        assertThat(json).contains("\"type\":\"input_audio\"");
+        assertThat(json).contains("\"format\":\"wav\"");
+        // 音频只接受裸 base64，带上 data URL 前缀会被上游判定为解码失败
+        assertThat(json).contains("\"data\":\"" + Base64.getEncoder().encodeToString(wav) + "\"");
+        assertThat(json).doesNotContain("data:audio/wav;base64,");
     }
 
 }

@@ -311,9 +311,11 @@ chatModel.call(new Prompt(userMessage, options));
 
 | `Media` 数据实际类型 | 图片 | 音频 |
 | --- | --- | --- |
-| `URI` 或 `String`（远程地址） | 直接作为 `image_url` 发送 | 不支持 |
-| `byte[]`（含 `Resource` 读入的内容） | 编码为 `data:` URL 发送 | 编码为 `data:` URL 发送 |
+| `URI` 或 `String`（远程地址） | 直接作为 `image_url` 发送 | 不支持，只接受 `byte[]` |
+| `byte[]`（含 `Resource` 读入的内容） | 编码为 `data:` URL 发送 | 编码为裸 Base64 发送（不带 `data:` 前缀） |
 
+音频与图片的编码方式不同：OpenRouter 的 `input_audio.data` 只接受裸 Base64，
+带上 `data:audio/wav;base64,` 前缀会被上游判定为解码失败。
 音频的格式串取 MIME 子类型（如 `audio/wav` → `wav`），MIME 缺失或类型不匹配的内容会被丢弃并记录一条 INFO 日志。
 非图片、非音频的 MIME 会退化为文本部件。视频与 `file` 内容部件不在建模范围内。
 
