@@ -1,0 +1,65 @@
+name: 发布到 Maven Central
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: maven-central-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v7
+
+      - name: 从标签读取版本
+        id: version
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "版本标签格式应为 v2.0.0"
+            exit 1
+          fi
+
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+      - name: 配置 Java、Maven 认证和签名密钥
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          server-id: central
+          server-username-env-var: CENTRAL_USERNAME
+          server-password-env-var: CENTRAL_PASSWORD
+          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+          gpg-passphrase-env-var: MAVEN_GPG_PASSPHRASE
+
+      - name: 构建、测试并发布
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.value }}
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
+          SIGNING_PASSWORD_BASE64: ${{ secrets.GPG_PASSPHRASE_BASE64 }}
+        run: |
+          export MAVEN_GPG_PASSPHRASE="$(
+            printf '%s' "$SIGNING_PASSWORD_BASE64" | base64 --decode
+          )"
+
+          mvn --batch-mode --no-transfer-progress \
+            -Prelease \
+            "-Drevision=$RELEASE_VERSION" \
+            -Dgpg.bestPractices=true \
+            clean deploy
