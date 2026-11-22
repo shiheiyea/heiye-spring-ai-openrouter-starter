@@ -70,6 +70,31 @@ class OpenRouterChatPropertiesTests {
     }
 
     @Test
+    void chatPropertiesBindToolCallingStrict() {
+        new ApplicationContextRunner().withPropertyValues("spring.ai.openrouter.api-key=abc123",
+                "spring.ai.openrouter.chat.strict=true")
+                .withConfiguration(AutoConfigurations.of(OpenRouterChatAutoConfiguration.class,
+                        RestClientAutoConfiguration.class, SpringAiRetryAutoConfiguration.class,
+                        ToolCallingAutoConfiguration.class, WebClientAutoConfiguration.class))
+                .run(context -> {
+                    OpenRouterChatProperties chatProperties = context.getBean(OpenRouterChatProperties.class);
+
+                    assertThat(chatProperties.getStrict()).isTrue();
+                    assertThat(chatProperties.toOptions().getStrict()).isTrue();
+                });
+    }
+
+    @Test
+    void chatPropertiesLeaveToolCallingStrictUnsetByDefault() {
+        new ApplicationContextRunner().withPropertyValues("spring.ai.openrouter.api-key=abc123")
+                .withConfiguration(AutoConfigurations.of(OpenRouterChatAutoConfiguration.class,
+                        RestClientAutoConfiguration.class, SpringAiRetryAutoConfiguration.class,
+                        ToolCallingAutoConfiguration.class, WebClientAutoConfiguration.class))
+                .run(context -> assertThat(context.getBean(OpenRouterChatProperties.class).toOptions().getStrict())
+                        .isNull());
+    }
+
+    @Test
     void chatPropertiesFallBackToDefaults() {
         new ApplicationContextRunner().withPropertyValues("spring.ai.openrouter.api-key=abc123")
                 .withConfiguration(AutoConfigurations.of(OpenRouterChatAutoConfiguration.class,
@@ -118,6 +143,26 @@ class OpenRouterChatPropertiesTests {
                     OpenRouterChatOptions options = chatProperties.toOptions();
                     assertThat(options.getModel()).isEqualTo("LEGACY_MODEL");
                     assertThat(options.getTemperature()).isEqualTo(0.3);
+                });
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    void deprecatedOptionsBridgeKeepsToolCallingStrict() {
+        // strict 既有扁平键又有嵌套 setter，是唯一会走两条路的字段：
+        // 若嵌套 setter 只写 chatOptions 而不回写扁平字段，toOptions() 会用外层的 null 把它冲掉
+        new ApplicationContextRunner()
+                .withPropertyValues("spring.ai.openrouter.api-key=abc123",
+                        "spring.ai.openrouter.chat.options.strict=true")
+                .withConfiguration(AutoConfigurations.of(OpenRouterChatAutoConfiguration.class,
+                        RestClientAutoConfiguration.class, SpringAiRetryAutoConfiguration.class,
+                        ToolCallingAutoConfiguration.class, WebClientAutoConfiguration.class))
+                .run(context -> {
+                    OpenRouterChatProperties chatProperties = context.getBean(OpenRouterChatProperties.class);
+
+                    assertThat(chatProperties.getOptions().getStrict()).isTrue();
+                    assertThat(chatProperties.getStrict()).isTrue();
+                    assertThat(chatProperties.toOptions().getStrict()).isTrue();
                 });
     }
 

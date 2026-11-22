@@ -871,6 +871,14 @@ public class OpenRouterApi {
                 this.parameters = jsonHelper.fromJsonToMap(jsonSchema);
             }
 
+            /**
+             * 同上，并显式指定严格模式；{@code strict} 为 null 时该字段不会写进请求体。
+             */
+            public Function(String name, String description, String jsonSchema, Boolean strict) {
+                this(name, description, jsonSchema);
+                this.strict = strict;
+            }
+
             public String getName() {
                 return this.name;
             }

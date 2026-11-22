@@ -289,6 +289,42 @@ class OpenRouterChatOptionsTests extends AbstractChatOptionsTests<OpenRouterChat
         assertThat(updated.context()).isEqualTo(OpenRouterApi.Reasoning.Context.CURRENT_TURN);
     }
 
+    @Test
+    void testToolCallingStrictIsIndependentFromResponseFormatStrict() {
+        OpenRouterChatOptions options = OpenRouterChatOptions.builder()
+                .strict(true)
+                .responseFormat(OpenRouterChatOptions.ResponseFormat.builder()
+                        .jsonSchema("{\"type\":\"object\"}")
+                        .strict(false)
+                        .build())
+                .build();
+
+        // 前者作用于工具调用的 function.strict，后者作用于 response_format.json_schema
+        assertThat(options.getStrict()).isTrue();
+        assertThat(options.getResponseFormat().getStrict()).isFalse();
+    }
+
+    @Test
+    void testToolCallingStrictSurvivesCloneAndMutate() {
+        OpenRouterChatOptions options = OpenRouterChatOptions.builder().strict(false).build();
+
+        assertThat(options.mutate().build().getStrict()).isFalse();
+        assertThat(options.mutate().clone().build().getStrict()).isFalse();
+    }
+
+    @Test
+    void testToolCallingStrictMergesFromOverride() {
+        OpenRouterChatOptions base = OpenRouterChatOptions.builder().strict(true).build();
+        OpenRouterChatOptions override = OpenRouterChatOptions.builder().strict(false).build();
+
+        OpenRouterChatOptions merged = base.mutate().combineWith(override.mutate()).build();
+
+        assertThat(merged.getStrict()).isFalse();
+        // 未覆盖时保留原值
+        assertThat(base.mutate().combineWith(OpenRouterChatOptions.builder().build().mutate()).build().getStrict())
+                .isTrue();
+    }
+
     private OpenRouterApi.FunctionTool functionTool(String name) {
         return new OpenRouterApi.FunctionTool(OpenRouterApi.FunctionTool.Type.FUNCTION,
                 new OpenRouterApi.FunctionTool.Function(name, "", "{}"));

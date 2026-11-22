@@ -90,6 +90,8 @@ public class OpenRouterChatProperties extends OpenRouterParentProperties {
 
     private @Nullable String sessionId;
 
+    private @Nullable Boolean strict;
+
     public boolean isEnabled() {
         return this.enabled;
     }
@@ -282,6 +284,14 @@ public class OpenRouterChatProperties extends OpenRouterParentProperties {
         this.sessionId = sessionId;
     }
 
+    public @Nullable Boolean getStrict() {
+        return this.strict;
+    }
+
+    public void setStrict(@Nullable Boolean strict) {
+        this.strict = strict;
+    }
+
     /**
      * 把配置组装成运行期选项。
      *
@@ -312,6 +322,7 @@ public class OpenRouterChatProperties extends OpenRouterParentProperties {
                 .parallelToolCalls(this.parallelToolCalls)
                 .promptCacheKey(this.promptCacheKey)
                 .sessionId(this.sessionId)
+                .strict(this.strict)
                 .build();
     }
 
@@ -603,6 +614,16 @@ public class OpenRouterChatProperties extends OpenRouterParentProperties {
 
         public void setExtraBody(@Nullable Map<String, Object> extraBody) {
             OpenRouterChatProperties.this.updateOptions(builder -> builder.extraBody(extraBody));
+        }
+
+        @DeprecatedConfigurationProperty(replacement = CONFIG_PREFIX + ".strict")
+        @Deprecated(since = "2.0.0", forRemoval = true)
+        public @Nullable Boolean getStrict() {
+            return OpenRouterChatProperties.this.getStrict();
+        }
+
+        public void setStrict(@Nullable Boolean strict) {
+            OpenRouterChatProperties.this.setStrict(strict);
         }
 
     }

@@ -102,6 +102,8 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions, Structured
 
     private final Boolean parallelToolCalls;
 
+    private final @Nullable Boolean strict;
+
     private final String promptCacheKey;
 
     private final String sessionId;
@@ -129,7 +131,7 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions, Structured
             @Nullable Map<String, Number> logitBias, @Nullable Integer topLogprobs,
             @Nullable Boolean logprobs, @Nullable List<String> models, @Nullable List<String> modalities,
             @Nullable String serviceTier, @Nullable String user, @Nullable Boolean parallelToolCalls,
-            @Nullable String promptCacheKey, @Nullable String sessionId,
+            @Nullable Boolean strict, @Nullable String promptCacheKey, @Nullable String sessionId,
             OpenRouterApi.@Nullable ProviderPreferences provider, @Nullable List<OpenRouterApi.FunctionTool> tools,
             @Nullable Object toolChoice, @Nullable Map<String, Object> extraBody,
             @Nullable List<ToolCallback> toolCallbacks, @Nullable Map<String, Object> toolContext,
@@ -158,6 +160,7 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions, Structured
         this.serviceTier = serviceTier;
         this.user = user;
         this.parallelToolCalls = parallelToolCalls;
+        this.strict = strict;
         this.promptCacheKey = promptCacheKey;
         this.sessionId = sessionId;
         this.provider = provider;
@@ -391,6 +394,17 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions, Structured
         return this.parallelToolCalls;
     }
 
+    /**
+     * 工具调用的严格模式开关，对应请求体 {@code tools[].function.strict}。
+     *
+     * 缺省为 null，表示不写该字段，由 provider 自行决定；与
+     * {@link ResponseFormat#getStrict()} 是两个独立字段，后者只作用于
+     * {@code response_format.json_schema}。
+     */
+    public @Nullable Boolean getStrict() {
+        return this.strict;
+    }
+
     public @Nullable String getPromptCacheKey() {
         return this.promptCacheKey;
     }
@@ -465,6 +479,7 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions, Structured
                 .serviceTier(this.serviceTier)
                 .user(this.user)
                 .parallelToolCalls(this.parallelToolCalls)
+                .strict(this.strict)
                 .promptCacheKey(this.promptCacheKey)
                 .sessionId(this.sessionId)
                 .provider(this.provider)
@@ -483,9 +498,9 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions, Structured
         return Objects.hash(this.model, this.temperature, this.stream, this.reasoning, this.maxTokens,
                 this.frequencyPenalty, this.presencePenalty, this.topP, this.topK, this.seed, this.minP, this.topA,
                 this.repetitionPenalty, this.stop, this.logitBias, this.topLogprobs, this.logprobs, this.models,
-                this.modalities, this.serviceTier, this.user, this.parallelToolCalls, this.promptCacheKey,
-                this.sessionId, this.provider, this.tools, this.toolChoice, this.extraBody, this.toolCallbacks,
-                this.toolContext, this.responseFormat);
+                this.modalities, this.serviceTier, this.user, this.parallelToolCalls, this.strict,
+                this.promptCacheKey, this.sessionId, this.provider, this.tools, this.toolChoice, this.extraBody,
+                this.toolCallbacks, this.toolContext, this.responseFormat);
     }
 
     @Override
@@ -512,6 +527,7 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions, Structured
                 && Objects.equals(this.modalities, that.modalities)
                 && Objects.equals(this.serviceTier, that.serviceTier) && Objects.equals(this.user, that.user)
                 && Objects.equals(this.parallelToolCalls, that.parallelToolCalls)
+                && Objects.equals(this.strict, that.strict)
                 && Objects.equals(this.promptCacheKey, that.promptCacheKey)
                 && Objects.equals(this.sessionId, that.sessionId) && Objects.equals(this.provider, that.provider)
                 && Objects.equals(this.tools, that.tools) && Objects.equals(this.toolChoice, that.toolChoice)
@@ -588,6 +604,8 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions, Structured
         protected @Nullable String user;
 
         protected @Nullable Boolean parallelToolCalls;
+
+        protected @Nullable Boolean strict;
 
         protected @Nullable String promptCacheKey;
 
@@ -791,6 +809,17 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions, Structured
             return self();
         }
 
+        /**
+         * 工具调用的严格模式，作用于请求体 {@code tools[].function.strict}。
+         *
+         * 传 null 表示不写该字段，交由 provider 决定；与
+         * {@code responseFormat(...).strict(...)} 是两个独立开关。
+         */
+        public B strict(@Nullable Boolean strict) {
+            this.strict = strict;
+            return self();
+        }
+
         public B promptCacheKey(@Nullable String promptCacheKey) {
             this.promptCacheKey = promptCacheKey;
             return self();
@@ -879,6 +908,7 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions, Structured
                 this.user = that.user != null ? that.user : this.user;
                 this.parallelToolCalls = that.parallelToolCalls != null ? that.parallelToolCalls
                         : this.parallelToolCalls;
+                this.strict = that.strict != null ? that.strict : this.strict;
                 this.promptCacheKey = that.promptCacheKey != null ? that.promptCacheKey : this.promptCacheKey;
                 this.sessionId = that.sessionId != null ? that.sessionId : this.sessionId;
                 this.provider = that.provider != null ? that.provider : this.provider;
@@ -913,9 +943,9 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions, Structured
             return new OpenRouterChatOptions(this.model, this.temperature, this.stream, this.reasoning, this.maxTokens,
                     this.frequencyPenalty, this.presencePenalty, this.topP, this.topK, this.seed, this.minP, this.topA,
                     this.repetitionPenalty, this.stop, this.logitBias, this.topLogprobs, this.logprobs, this.models,
-                    this.modalities, this.serviceTier, this.user, this.parallelToolCalls, this.promptCacheKey,
-                    this.sessionId, this.provider, this.tools, this.toolChoice, this.extraBody, this.toolCallbacks,
-                    this.toolContext, this.responseFormat);
+                    this.modalities, this.serviceTier, this.user, this.parallelToolCalls, this.strict,
+                    this.promptCacheKey, this.sessionId, this.provider, this.tools, this.toolChoice, this.extraBody,
+                    this.toolCallbacks, this.toolContext, this.responseFormat);
         }
 
     }

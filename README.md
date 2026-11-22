@@ -154,6 +154,7 @@ public class ChatController {
 | `spring.ai.openrouter.chat.service-tier` | 未设置 | 服务等级：`auto`、`default`、`flex`、`priority`、`scale`、`ultrafast`，`fast` 是 `priority` 的别名 |
 | `spring.ai.openrouter.chat.user` | 未设置 | 终端用户标识，服务端哈希后转发 |
 | `spring.ai.openrouter.chat.parallel-tool-calls` | 未设置 | 是否允许并行工具调用 |
+| `spring.ai.openrouter.chat.strict` | 未设置 | 工具调用是否启用严格模式，序列化为 `tools[].function.strict` |
 | `spring.ai.openrouter.chat.prompt-cache-key` | 未设置 | 提示缓存键 |
 | `spring.ai.openrouter.chat.session-id` | 未设置 | 会话标识，最长 256 字符 |
 
