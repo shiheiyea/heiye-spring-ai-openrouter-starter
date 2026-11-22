@@ -193,6 +193,18 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions, Structured
             this.strict = strict;
         }
 
+        /**
+         * 复制一份响应格式，供 {@code Builder.clone()} 断开与源对象共享的可变状态。
+         *
+         * 返回 null 表示源对象本身为 null；字段值都是不可变类型，逐字段复制即可。
+         */
+        static @Nullable ResponseFormat copyOf(@Nullable ResponseFormat source) {
+            if (source == null) {
+                return null;
+            }
+            return new ResponseFormat(source.getType(), source.getJsonSchema(), source.getName(), source.getStrict());
+        }
+
         public Type getType() {
             return this.type;
         }
@@ -637,22 +649,24 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions, Structured
             copy.minP = this.minP;
             copy.topA = this.topA;
             copy.repetitionPenalty = this.repetitionPenalty;
-            copy.stop = this.stop;
-            copy.logitBias = this.logitBias;
+            // 集合与可变对象一律复制一份，避免副本与原对象共享同一个可变状态
+            copy.stop = this.stop == null ? null : new ArrayList<>(this.stop);
+            copy.logitBias = this.logitBias == null ? null : new HashMap<>(this.logitBias);
             copy.topLogprobs = this.topLogprobs;
             copy.logprobs = this.logprobs;
-            copy.models = this.models;
-            copy.modalities = this.modalities;
+            copy.models = this.models == null ? null : new ArrayList<>(this.models);
+            copy.modalities = this.modalities == null ? null : new ArrayList<>(this.modalities);
             copy.serviceTier = this.serviceTier;
             copy.user = this.user;
             copy.parallelToolCalls = this.parallelToolCalls;
             copy.promptCacheKey = this.promptCacheKey;
             copy.sessionId = this.sessionId;
             copy.provider = this.provider;
-            copy.tools = this.tools;
+            copy.tools = this.tools == null ? null : new ArrayList<>(this.tools);
             copy.toolChoice = this.toolChoice;
-            copy.extraBody = this.extraBody;
-            copy.responseFormat = this.responseFormat;
+            copy.extraBody = this.extraBody == null ? null : new HashMap<>(this.extraBody);
+            copy.strict = this.strict;
+            copy.responseFormat = ResponseFormat.copyOf(this.responseFormat);
             return copy;
         }
 
