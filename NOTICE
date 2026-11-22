@@ -1,9 +1,9 @@
 Heiye Spring AI OpenRouter Starter
 Copyright 2026 shiheiyea
 
-This product includes code adapted from Spring AI 2.0.0, particularly its
+This product includes code adapted from Spring AI 2.0.1, particularly its
 DeepSeek model and auto-configuration modules.
-Spring AI: https://github.com/spring-projects/spring-ai/tree/v2.0.0
+Spring AI: https://github.com/spring-projects/spring-ai/tree/v2.0.1
 Copyright 2023-2025 the original author or authors.
 Licensed under the Apache License, Version 2.0.
 

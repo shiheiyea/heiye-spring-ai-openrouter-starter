@@ -6,7 +6,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>4.1.0</version>
+        <version>4.1.1</version>
         <relativePath/>
     </parent>
 
@@ -15,7 +15,7 @@
     <version>${revision}</version>
     <name>heiye-spring-ai-model-openrouter-starter</name>
     <description>
-        基于 Spring AI 2.0.0 的 OpenRouter 聊天模型适配器，提供 Spring Boot 自动配置、非流式与流式聊天、推理详情读取、
+        基于 Spring AI 2.0.1 的 OpenRouter 聊天模型适配器，提供 Spring Boot 自动配置、非流式与流式聊天、推理详情读取、
         多模态输入与工具调用支持。
     </description>
     <url>https://github.com/shiheiyea/heiye-spring-ai-openrouter-starter</url>
@@ -41,9 +41,9 @@
     </scm>
 
     <properties>
-        <revision>2.0.0</revision>
+        <revision>2.0.1</revision>
         <java.version>17</java.version>
-        <spring-ai.version>2.0.0</spring-ai.version>
+        <spring-ai.version>2.0.1</spring-ai.version>
     </properties>
 
     <dependencyManagement>
@@ -232,6 +232,7 @@
                         <extensions>true</extensions>
                         <configuration>
                             <publishingServerId>central</publishingServerId>
+                            <deploymentName>${project.artifactId}-${project.version}</deploymentName>
                             <autoPublish>true</autoPublish>
                             <waitUntil>published</waitUntil>
                         </configuration>

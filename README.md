@@ -8,8 +8,8 @@
 复用统一的消息、聊天选项、工具调用、结构化输出与可观测性机制。
 
 ![Java](https://img.shields.io/badge/Java-17-007396?logo=openjdk&logoColor=white)
-![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.0-6DB33F?logo=springboot&logoColor=white)
-![Spring AI](https://img.shields.io/badge/Spring%20AI-2.0.0-6DB33F?logo=spring&logoColor=white)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.1-6DB33F?logo=springboot&logoColor=white)
+![Spring AI](https://img.shields.io/badge/Spring%20AI-2.0.1-6DB33F?logo=spring&logoColor=white)
 ![License](https://img.shields.io/badge/License-Apache%202.0-blue)
 
 </div>
@@ -37,14 +37,14 @@
 <dependency>
     <groupId>io.github.shiheiyea</groupId>
     <artifactId>heiye-spring-ai-model-openrouter-starter</artifactId>
-    <version>2.0.0</version>
+    <version>2.0.1</version>
 </dependency>
 ```
 
 > 尚未发布到 Maven Central 时，先克隆 [本仓库](https://github.com/shiheiyea/heiye-spring-ai-openrouter-starter)
 > 执行 `mvn clean install`，再在本地项目引用。
 
-建议消费项目使用 Spring Boot 4.1.0，并导入 Spring AI BOM 2.0.0，避免不同 Spring AI 模块版本混用：
+建议消费项目使用 Spring Boot 4.1.1，并导入 Spring AI BOM 2.0.1，避免不同 Spring AI 模块版本混用：
 
 ```xml
 <dependencyManagement>
@@ -52,7 +52,7 @@
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-bom</artifactId>
-            <version>2.0.0</version>
+            <version>2.0.1</version>
             <type>pom</type>
             <scope>import</scope>
         </dependency>
@@ -373,7 +373,7 @@ var options = OpenRouterChatOptions.builder()
 var response = chatModel.call(new Prompt("请查询当前应用名称。", options));
 ```
 
-**执行归属**：`ChatModel` 只负责发起请求并返回模型产出的工具调用，不执行工具——这是 Spring AI 2.0.0 的统一契约，
+**执行归属**：`ChatModel` 只负责发起请求并返回模型产出的工具调用，不执行工具——这是 Spring AI 2.0.1 的统一契约，
 不是本模块的缺口。需要自动执行时有两种做法：
 
 - 用 `ChatClient`：它默认自动注册 `ToolCallingAdvisor`，会驱动「请求 → 执行工具 → 再请求」的循环，直到模型不再请求工具。
@@ -577,7 +577,7 @@ spring:
 
 | 维度 | 支持情况 |
 | --- | --- |
-| 构建坐标 | Java 17 · Spring Boot 4.1.0 · Spring AI BOM 2.0.0 |
+| 构建坐标 | Java 17 · Spring Boot 4.1.1 · Spring AI BOM 2.0.1 |
 | 选项契约 | 实现 `ToolCallingChatOptions` 与 `StructuredOutputChatOptions`，可参与 `ChatClient` 的统一选项机制 |
 | 非流式 | `call(Prompt)`，走 `RestClient`，带重试 |
 | 流式 | `stream(Prompt)`，走 `WebClient` + SSE，工具调用片段自动缝合 |
@@ -595,16 +595,16 @@ spring:
 
 ## 从 1.1.0 迁移
 
-2.0.0 是一次破坏性升级，对齐 Spring AI 2.0.0 的 `ChatModel` 契约。
+2.0.1 是一次破坏性升级，对齐 Spring AI 2.0.1 的 `ChatModel` 契约。
 
-1. **坐标与版本**：artifactId 不变（`heiye-spring-ai-model-openrouter-starter`），`<version>` 从 `1.1.0` 改为 `2.0.0`；
-   同时 Spring Boot 从 3.5.7 升到 4.1.0、Spring AI 从 1.1.0 升到 2.0.0。
+1. **坐标与版本**：artifactId 不变（`heiye-spring-ai-model-openrouter-starter`），`<version>` 从 `1.1.0` 改为 `2.0.1`；
+   同时 Spring Boot 从 3.5.7 升到 4.1.1、Spring AI 从 1.1.0 升到 2.0.1。
 2. **包名迁移**：`io.github.shiheiyea.spring.ai.openrouter.config` → `...openrouter.autoconfigure`，
    涉及 `OpenRouterChatAutoConfiguration`、`OpenRouterChatProperties`、`OpenRouterConnectionProperties`、`OpenRouterParentProperties` 四个类，不保留旧包。
 3. **配置扁平化**：`spring.ai.openrouter.chat.options.model` → `spring.ai.openrouter.chat.model`，其余标量项同理。
    旧写法仍生效，但已在配置元数据中标记为废弃。结构化字段（`reasoning` / `provider` / `tool-choice` / `extra-body`）没有扁平项，继续走旧写法。
    两种写法同时存在时落到同一份 `OpenRouterChatOptions`，后解析的值覆盖前者。
-4. **`getDefaultOptions()` → `getOptions()`**：前者在 Spring AI 2.0.0 已废弃；`OpenRouterChatModel.Builder` 的 `defaultOptions(...)` 同步改名为 `options(...)`。
+4. **`getDefaultOptions()` → `getOptions()`**：前者在 Spring AI 2.0.1 已废弃；`OpenRouterChatModel.Builder` 的 `defaultOptions(...)` 同步改名为 `options(...)`。
 5. **`call(Prompt)` 可用**：1.1.0 返回 `null`，现在返回真实 `ChatResponse`。
 6. **工具执行下沉**：模型层内部的自动执行逻辑已移除。若依赖旧的自动执行行为，请改用 `ChatClient`（自动注册 `ToolCallingAdvisor`）或手动驱动 `ToolCallingManager`。
 7. **`prefix` 删除**：`OpenRouterAssistantMessage` 不再有 `prefix`，新增 `reasoningDetails`。
@@ -621,7 +621,7 @@ spring:
 mvn clean verify
 ```
 
-产物为 `target/heiye-spring-ai-model-openrouter-starter-2.0.0.jar`，是供其它应用依赖的普通 JAR，
+产物为 `target/heiye-spring-ai-model-openrouter-starter-2.0.1.jar`，是供其它应用依赖的普通 JAR，
 不是可直接 `java -jar` 启动的 Spring Boot 应用。
 
 `verify` 会编译、执行单元测试并打包。真实网络集成测试默认以 `@Disabled` 关闭，
@@ -645,7 +645,7 @@ OpenRouter 会在多个提供商之间路由。需要强制只使用支持特定
 
 **直接用 `ChatModel` 时，工具为什么没有被执行？**
 
-这是 Spring AI 2.0.0 的契约：`ChatModel` 只发起请求并返回模型产出的工具调用，不执行工具。
+这是 Spring AI 2.0.1 的契约：`ChatModel` 只发起请求并返回模型产出的工具调用，不执行工具。
 `ChatClient` 会自动注册 `ToolCallingAdvisor` 完成执行，所以用 `ChatClient` 时不需要额外处理；
 直接用 `ChatModel` 时需按[工具调用](#工具调用)中的方式自行驱动 `ToolCallingManager`。
 
@@ -660,7 +660,7 @@ OpenRouter 会在多个提供商之间路由。需要强制只使用支持特定
 
 **支持 Spring Boot 3.x 吗？**
 
-不支持。2.0.0 依赖 Spring AI 2.0.0，构建与测试基线是 Spring Boot 4.1.0 与 JDK 17。
+不支持。2.0.1 依赖 Spring AI 2.0.1，构建与测试基线是 Spring Boot 4.1.1 与 JDK 17。
 
 ## 参与贡献
 
@@ -669,7 +669,7 @@ OpenRouter 会在多个提供商之间路由。需要强制只使用支持特定
 
 ## 许可证
 
-本项目采用 [Apache License 2.0](LICENSE)。部分实现参考并改编自 Spring AI 2.0.0，
+本项目采用 [Apache License 2.0](LICENSE)。部分实现参考并改编自 Spring AI 2.0.1，
 来源与修改说明见 [NOTICE](NOTICE)。
 
 ## 参考资料
