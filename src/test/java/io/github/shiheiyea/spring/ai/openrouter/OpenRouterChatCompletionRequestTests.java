@@ -77,7 +77,8 @@ class OpenRouterChatCompletionRequestTests {
 
         assertThat(request.messages()).hasSize(1);
         assertThat(request.model()).isEqualTo(OpenRouterApi.DEFAULT_CHAT_MODEL.getValue());
-        assertThat(request.temperature()).isEqualTo(0.7D);
+        // 采样温度没有内置默认值，未设置时不写进请求体
+        assertThat(request.temperature()).isNull();
     }
 
     @Test

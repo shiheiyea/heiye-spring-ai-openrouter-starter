@@ -46,8 +46,8 @@ class OpenRouterChatOptionsTests extends AbstractChatOptionsTests<OpenRouterChat
     }
 
     @Test
-    void testTemperatureDefaultsTo07() {
-        assertThat(OpenRouterChatOptions.builder().build().getTemperature()).isEqualTo(0.7);
+    void testTemperatureHasNoBuiltInDefault() {
+        assertThat(OpenRouterChatOptions.builder().build().getTemperature()).isNull();
         assertThat(OpenRouterChatOptions.builder().temperature(0.2).build().getTemperature()).isEqualTo(0.2);
     }
 

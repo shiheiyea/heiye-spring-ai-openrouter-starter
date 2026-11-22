@@ -115,7 +115,7 @@ public class ChatController {
 ## 配置
 
 配置分两层：`spring.ai.openrouter.*` 是连接参数，`spring.ai.openrouter.chat.*` 是聊天参数。
-聊天参数可以按需省略。除 `model` 与 `temperature` 有代码默认值外，未配置的项不写入请求体，由 OpenRouter 决定默认行为。
+聊天参数可以按需省略。除 `model` 有代码默认值外，未配置的项不写入请求体，由 OpenRouter 决定默认行为。
 
 ### 连接
 
@@ -136,7 +136,7 @@ public class ChatController {
 | --- | --- | --- |
 | `spring.ai.openrouter.chat.completions-path` | `/api/v1/chat/completions` | 请求路径 |
 | `spring.ai.openrouter.chat.model` | `google/gemini-3-flash-preview` | 代码默认值，建议显式指定 |
-| `spring.ai.openrouter.chat.temperature` | `0.7` | 采样温度 |
+| `spring.ai.openrouter.chat.temperature` | 未设置 | 采样温度，不设置时由模型自身决定 |
 | `spring.ai.openrouter.chat.max-tokens` | 未设置 | 序列化为 `max_completion_tokens` |
 | `spring.ai.openrouter.chat.top-p` | 未设置 | 核采样 |
 | `spring.ai.openrouter.chat.top-k` | 未设置 | top-k 采样 |
@@ -611,7 +611,7 @@ spring:
 8. **`max_tokens` → `max_completion_tokens`**：请求字段名变化，`maxTokens(...)` 方法名不变。
 9. **`reasoning` 强类型化**：`effort` 从 3 档扩展到 7 档，新增 `summary`、`mode`、`context`。原有 `low` / `medium` / `high` 取值继续可用。
    只调强度时不必再补一串 `null`，改用 `builder.reasoningEffort(Effort.HIGH)` 或 `Reasoning.effort(...)`。
-10. **默认 temperature 调整**：1.1.0 的默认值是 `1.0`，2.0.0 改为 `0.7`；显式配置过的不受影响。
+10. **默认 temperature 调整**：1.1.0 的默认值是 `1.0`，2.0.0 改为 `0.7`；2.0.1 起不再内置默认值，未配置时不写入请求体。显式配置过的不受影响。
 
 ## 构建与测试
 

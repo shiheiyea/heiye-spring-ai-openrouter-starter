@@ -83,7 +83,8 @@ class OpenRouterChatPropertiesTests {
                             .isEqualTo(OpenRouterChatProperties.DEFAULT_COMPLETIONS_PATH);
 
                     OpenRouterChatOptions options = chatProperties.toOptions();
-                    assertThat(options.getTemperature()).isEqualTo(0.7);
+                    // 采样温度没有内置默认值，未配置时不设置
+                    assertThat(options.getTemperature()).isNull();
                 });
     }
 

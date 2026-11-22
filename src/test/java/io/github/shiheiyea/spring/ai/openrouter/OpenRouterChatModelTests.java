@@ -95,7 +95,7 @@ class OpenRouterChatModelTests {
         // 未设置的字段保持缺省，不被补成 0
         assertThat(request.seed()).isNull();
         assertThat(request.topLogprobs()).isNull();
-        assertThat(request.temperature()).isEqualTo(0.7);
+        assertThat(request.temperature()).isNull();
     }
 
     @Test

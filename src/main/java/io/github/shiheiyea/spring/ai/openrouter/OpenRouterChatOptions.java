@@ -60,7 +60,7 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions, Structured
 
     private final String model;
 
-    private final Double temperature;
+    private final @Nullable Double temperature;
 
     private final Boolean stream;
 
@@ -136,7 +136,8 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions, Structured
             @Nullable ResponseFormat responseFormat) {
         // OpenRouter 没有默认模型，缺省时沿用接口层声明的模型，保证请求始终带 model
         this.model = model != null ? model : OpenRouterApi.DEFAULT_CHAT_MODEL.getValue();
-        this.temperature = temperature != null ? temperature : 0.7;
+        // 采样温度不再内置默认值，缺省时不写进请求体，由模型自身决定
+        this.temperature = temperature;
         this.stream = stream;
         this.reasoning = reasoning;
         this.maxTokens = maxTokens;
