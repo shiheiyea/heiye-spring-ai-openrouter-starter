@@ -149,7 +149,7 @@ public class ChatController {
 | `spring.ai.openrouter.chat.stop` | 未设置 | 停止序列，最多 4 条 |
 | `spring.ai.openrouter.chat.logprobs` | 未设置 | 是否返回 token 概率 |
 | `spring.ai.openrouter.chat.top-logprobs` | 未设置 | 返回前 N 个候选概率 |
-| `spring.ai.openrouter.chat.models` | 未设置 | 备用模型列表，最多 3 个 |
+| `spring.ai.openrouter.chat.models` | 未设置 | 备用模型列表，按顺序降级 |
 | `spring.ai.openrouter.chat.modalities` | 未设置 | 输出模态，如 `text`、`image`、`audio` |
 | `spring.ai.openrouter.chat.service-tier` | 未设置 | 服务等级：`auto`、`default`、`flex`、`priority`、`scale`、`ultrafast`，`fast` 是 `priority` 的别名 |
 | `spring.ai.openrouter.chat.user` | 未设置 | 终端用户标识，服务端哈希后转发 |
@@ -160,7 +160,7 @@ public class ChatController {
 
 还有一个 `spring.ai.openrouter.chat.stream` 属性未列入上表：它能被绑定，但实际是否流式由调用方式（`call` / `stream`）决定，配置它不会改变链路。
 
-`stop` 超过 4 条、`models` 超过 3 个时，Builder 会在构建阶段抛出 `IllegalArgumentException`，不会截断或忽略。
+`stop` 超过 4 条时，Builder 会在构建阶段抛出 `IllegalArgumentException`，不会截断或忽略。
 
 ### 结构化字段
 

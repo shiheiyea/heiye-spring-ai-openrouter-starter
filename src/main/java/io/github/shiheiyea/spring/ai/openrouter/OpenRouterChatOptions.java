@@ -796,9 +796,12 @@ public class OpenRouterChatOptions implements ToolCallingChatOptions, Structured
             return self();
         }
 
+        /**
+         * 模型降级链。
+         *
+         * 协议侧对条目数没有上限，只要求每项是可用模型名，条数由上游可用性策略决定。
+         */
         public B models(@Nullable List<String> models) {
-            // 规范里 ChatModelNames 声明了 maxItems: 3
-            Assert.isTrue(models == null || models.size() <= 3, "models must contain at most 3 entries");
             this.models = models;
             return self();
         }

@@ -325,6 +325,16 @@ class OpenRouterChatOptionsTests extends AbstractChatOptionsTests<OpenRouterChat
                 .isTrue();
     }
 
+    @Test
+    void testModelsAcceptsMoreThanThreeEntries() {
+        // 协议侧对降级链条数没有上限
+        OpenRouterChatOptions options = OpenRouterChatOptions.builder()
+                .models(List.of("a", "b", "c", "d"))
+                .build();
+
+        assertThat(options.getModels()).containsExactly("a", "b", "c", "d");
+    }
+
     private OpenRouterApi.FunctionTool functionTool(String name) {
         return new OpenRouterApi.FunctionTool(OpenRouterApi.FunctionTool.Type.FUNCTION,
                 new OpenRouterApi.FunctionTool.Function(name, "", "{}"));
