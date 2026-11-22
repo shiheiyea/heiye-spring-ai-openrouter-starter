@@ -30,6 +30,7 @@ import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.content.Media;
+import org.springframework.ai.tool.function.FunctionToolCallback;
 import org.springframework.ai.util.JsonHelper;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.util.MimeType;
@@ -39,6 +40,7 @@ import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ChatCompletion
 import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ChatCompletionRequest;
 import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.Reasoning;
 import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ReasoningDetail;
+import io.github.shiheiyea.spring.ai.openrouter.chat.MockWeatherService;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -198,6 +200,36 @@ class OpenRouterChatCompletionRequestTests {
 
         assertThat(request.tools()).hasSize(1);
         assertThat(request.tools().get(0).getFunction().getName()).isEqualTo("weather");
+    }
+
+    @Test
+    void createRequestOmitsToolCallingStrictWhenNotConfigured() {
+        Prompt prompt = new Prompt("Test message content",
+                OpenRouterChatOptions.builder().toolCallbacks(List.of(weatherToolCallback())).build());
+
+        ChatCompletionRequest request = this.client.createRequest(prompt, false);
+
+        // 缺省不写该字段，是否严格由上游按模型能力决定
+        assertThat(request.tools()).hasSize(1);
+        assertThat(request.tools().get(0).getFunction().getStrict()).isNull();
+    }
+
+    @Test
+    void createRequestWithToolCallingStrict() {
+        Prompt prompt = new Prompt("Test message content",
+                OpenRouterChatOptions.builder().toolCallbacks(List.of(weatherToolCallback())).strict(true).build());
+
+        ChatCompletionRequest request = this.client.createRequest(prompt, false);
+
+        assertThat(request.tools()).hasSize(1);
+        assertThat(request.tools().get(0).getFunction().getStrict()).isTrue();
+    }
+
+    private static FunctionToolCallback weatherToolCallback() {
+        return FunctionToolCallback.builder("getCurrentWeather", new MockWeatherService())
+            .description("Get the weather in location")
+            .inputType(MockWeatherService.Request.class)
+            .build();
     }
 
     @Test

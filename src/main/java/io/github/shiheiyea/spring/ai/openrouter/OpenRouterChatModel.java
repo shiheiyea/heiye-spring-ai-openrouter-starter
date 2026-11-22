@@ -449,42 +449,54 @@ public class OpenRouterChatModel implements ChatModel {
             }
         }
 
-        ChatCompletionRequest request = new ChatCompletionRequest(chatCompletionMessages, stream);
-
         OpenRouterChatOptions requestOptions = (OpenRouterChatOptions) prompt.getOptions();
         Assert.state(requestOptions != null, "requestOptions must not be null");
 
         // 响应格式在请求构建期做一次转换，非法 schema 在这里就失败
         OpenRouterApi.ResponseFormat responseFormat = this.toResponseFormat(requestOptions);
 
-        // 运行期选项优先，缺省值来自模型持有的默认选项
-        request = new ChatCompletionRequest(request.messages(), request.stream(),
-                requestOptions.getTools(), responseFormat,
-                requestOptions.getModel(), requestOptions.getMaxTokens(), requestOptions.getTemperature(),
-                requestOptions.getTopP(), requestOptions.getTopK(), requestOptions.getFrequencyPenalty(),
-                requestOptions.getPresencePenalty(), requestOptions.getRepetitionPenalty(), requestOptions.getSeed(),
-                requestOptions.getMinP(), requestOptions.getTopA(), requestOptions.getStopSequences(),
-                requestOptions.getLogitBias(), requestOptions.getTopLogprobs(), requestOptions.getLogprobs(),
-                requestOptions.getModels(), requestOptions.getModalities(), requestOptions.getServiceTier(),
-                requestOptions.getUser(), requestOptions.getParallelToolCalls(), requestOptions.getPromptCacheKey(),
-                requestOptions.getSessionId(), requestOptions.getProvider(), requestOptions.getReasoning(),
-                requestOptions.getToolChoice(), requestOptions.getExtraBody());
+        // 运行期选项优先，缺省值来自模型持有的默认选项；未设置的可选项保持 null，不写进请求体
+        ChatCompletionRequest.Builder requestBuilder = ChatCompletionRequest.builder()
+            .messages(chatCompletionMessages)
+            .stream(stream)
+            .responseFormat(responseFormat)
+            .model(requestOptions.getModel())
+            .temperature(requestOptions.getTemperature())
+            .topP(requestOptions.getTopP())
+            .topK(requestOptions.getTopK())
+            .maxTokens(requestOptions.getMaxTokens())
+            .frequencyPenalty(requestOptions.getFrequencyPenalty())
+            .presencePenalty(requestOptions.getPresencePenalty())
+            .repetitionPenalty(requestOptions.getRepetitionPenalty())
+            .seed(requestOptions.getSeed())
+            .minP(requestOptions.getMinP())
+            .topA(requestOptions.getTopA())
+            .stop(requestOptions.getStopSequences())
+            .logitBias(requestOptions.getLogitBias())
+            .topLogprobs(requestOptions.getTopLogprobs())
+            .logprobs(requestOptions.getLogprobs())
+            .models(requestOptions.getModels())
+            .modalities(requestOptions.getModalities())
+            .serviceTier(requestOptions.getServiceTier())
+            .user(requestOptions.getUser())
+            .parallelToolCalls(requestOptions.getParallelToolCalls())
+            .promptCacheKey(requestOptions.getPromptCacheKey())
+            .sessionId(requestOptions.getSessionId())
+            .provider(requestOptions.getProvider())
+            .reasoning(requestOptions.getReasoning())
+            .toolChoice(requestOptions.getToolChoice())
+            .extraBody(requestOptions.getExtraBody());
 
+        // 工具定义由 ToolCallingManager 解析，解析结果为空时不写 tools 字段
         List<ToolDefinition> toolDefinitions = this.toolCallingManager.resolveToolDefinitions(requestOptions);
-        // 添加工具定义
         if (!CollectionUtils.isEmpty(toolDefinitions)) {
-            request = new ChatCompletionRequest(request.messages(), request.stream(),
-                    this.getFunctionTools(toolDefinitions), request.responseFormat(), request.model(),
-                    request.maxTokens(), request.temperature(), request.topP(), request.topK(),
-                    request.frequencyPenalty(), request.presencePenalty(), request.repetitionPenalty(),
-                    request.seed(), request.minP(), request.topA(), request.stop(), request.logitBias(),
-                    request.topLogprobs(), request.logprobs(), request.models(), request.modalities(),
-                    request.serviceTier(), request.user(), request.parallelToolCalls(), request.promptCacheKey(),
-                    request.sessionId(), request.provider(), request.reasoning(), request.toolChoice(),
-                    request.extraBody());
+            requestBuilder.tools(this.getFunctionTools(toolDefinitions, requestOptions));
+        }
+        else {
+            requestBuilder.tools(requestOptions.getTools());
         }
 
-        return request;
+        return requestBuilder.build();
     }
 
     /**
@@ -601,10 +613,20 @@ public class OpenRouterChatModel implements ChatModel {
         return mimeType.getSubtype() != null ? mimeType.getSubtype().toLowerCase(Locale.ROOT) : "wav";
     }
 
-    private List<FunctionTool> getFunctionTools(List<ToolDefinition> toolDefinitions) {
+    /**
+     * 把工具定义转成请求体的 {@code tools} 数组，并决定 {@code function.strict} 的取值。
+     *
+     * 严格模式依次取请求选项与模型默认选项，两处都没设置时不写该字段，由 provider 自行决定。
+     */
+    private List<FunctionTool> getFunctionTools(List<ToolDefinition> toolDefinitions,
+            OpenRouterChatOptions requestOptions) {
+        // 请求级设置优先，其次回落到模型持有的默认选项
+        Boolean strict = requestOptions.getStrict() != null ? requestOptions.getStrict()
+                : (this.options != null ? this.options.getStrict() : null);
         return toolDefinitions.stream()
-                .map(toolDefinition -> new FunctionTool(new FunctionTool.Function(toolDefinition.name(),
-                        toolDefinition.description(), toolDefinition.inputSchema())))
+                .map(toolDefinition -> new FunctionTool(
+                        new FunctionTool.Function(toolDefinition.name(), toolDefinition.description(),
+                                toolDefinition.inputSchema(), strict)))
                 .toList();
     }
 

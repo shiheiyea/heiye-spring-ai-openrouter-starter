@@ -391,14 +391,8 @@ public class OpenRouterApi {
 
             @JsonIgnore Map<String, Object> extraBody) {
 
-        public ChatCompletionRequest(List<ChatCompletionMessage> messages, Boolean stream) {
-            this(messages, stream, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
-                    null, null, null, null, null, null, null, null, null, null, null, null, null, null);
-        }
-
-        public ChatCompletionRequest(List<ChatCompletionMessage> messages, String model, Double temperature) {
-            this(messages, null, null, null, model, null, temperature, null, null, null, null, null, null, null, null,
-                    null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        public static Builder builder() {
+            return new Builder();
         }
 
         /**
@@ -417,6 +411,236 @@ public class OpenRouterApi {
             Map<String, Object> properties = new HashMap<>(this.extraBody);
             properties.remove("response_format");
             return properties;
+        }
+
+        /**
+         * 请求体构造器。
+         *
+         * 只写显式设置的字段，未设置的保持 null，序列化时由 {@code @JsonInclude(NON_NULL)}
+         * 整体略去，避免把未设置的参数当成显式值发给上游。
+         */
+        public static class Builder {
+
+            private @Nullable List<ChatCompletionMessage> messages;
+
+            private @Nullable Boolean stream;
+
+            private @Nullable List<FunctionTool> tools;
+
+            private @Nullable ResponseFormat responseFormat;
+
+            private @Nullable String model;
+
+            private @Nullable Integer maxTokens;
+
+            private @Nullable Double temperature;
+
+            private @Nullable Double topP;
+
+            private @Nullable Integer topK;
+
+            private @Nullable Double frequencyPenalty;
+
+            private @Nullable Double presencePenalty;
+
+            private @Nullable Double repetitionPenalty;
+
+            private @Nullable Integer seed;
+
+            private @Nullable Double minP;
+
+            private @Nullable Double topA;
+
+            private @Nullable List<String> stop;
+
+            private @Nullable Map<String, Number> logitBias;
+
+            private @Nullable Integer topLogprobs;
+
+            private @Nullable Boolean logprobs;
+
+            private @Nullable List<String> models;
+
+            private @Nullable List<String> modalities;
+
+            private @Nullable String serviceTier;
+
+            private @Nullable String user;
+
+            private @Nullable Boolean parallelToolCalls;
+
+            private @Nullable String promptCacheKey;
+
+            private @Nullable String sessionId;
+
+            private @Nullable ProviderPreferences provider;
+
+            private @Nullable Reasoning reasoning;
+
+            private @Nullable Object toolChoice;
+
+            private @Nullable Map<String, Object> extraBody;
+
+            public Builder messages(List<ChatCompletionMessage> messages) {
+                this.messages = messages;
+                return this;
+            }
+
+            public Builder stream(@Nullable Boolean stream) {
+                this.stream = stream;
+                return this;
+            }
+
+            public Builder tools(@Nullable List<FunctionTool> tools) {
+                this.tools = tools;
+                return this;
+            }
+
+            public Builder responseFormat(@Nullable ResponseFormat responseFormat) {
+                this.responseFormat = responseFormat;
+                return this;
+            }
+
+            public Builder model(@Nullable String model) {
+                this.model = model;
+                return this;
+            }
+
+            public Builder maxTokens(@Nullable Integer maxTokens) {
+                this.maxTokens = maxTokens;
+                return this;
+            }
+
+            public Builder temperature(@Nullable Double temperature) {
+                this.temperature = temperature;
+                return this;
+            }
+
+            public Builder topP(@Nullable Double topP) {
+                this.topP = topP;
+                return this;
+            }
+
+            public Builder topK(@Nullable Integer topK) {
+                this.topK = topK;
+                return this;
+            }
+
+            public Builder frequencyPenalty(@Nullable Double frequencyPenalty) {
+                this.frequencyPenalty = frequencyPenalty;
+                return this;
+            }
+
+            public Builder presencePenalty(@Nullable Double presencePenalty) {
+                this.presencePenalty = presencePenalty;
+                return this;
+            }
+
+            public Builder repetitionPenalty(@Nullable Double repetitionPenalty) {
+                this.repetitionPenalty = repetitionPenalty;
+                return this;
+            }
+
+            public Builder seed(@Nullable Integer seed) {
+                this.seed = seed;
+                return this;
+            }
+
+            public Builder minP(@Nullable Double minP) {
+                this.minP = minP;
+                return this;
+            }
+
+            public Builder topA(@Nullable Double topA) {
+                this.topA = topA;
+                return this;
+            }
+
+            public Builder stop(@Nullable List<String> stop) {
+                this.stop = stop;
+                return this;
+            }
+
+            public Builder logitBias(@Nullable Map<String, Number> logitBias) {
+                this.logitBias = logitBias;
+                return this;
+            }
+
+            public Builder topLogprobs(@Nullable Integer topLogprobs) {
+                this.topLogprobs = topLogprobs;
+                return this;
+            }
+
+            public Builder logprobs(@Nullable Boolean logprobs) {
+                this.logprobs = logprobs;
+                return this;
+            }
+
+            public Builder models(@Nullable List<String> models) {
+                this.models = models;
+                return this;
+            }
+
+            public Builder modalities(@Nullable List<String> modalities) {
+                this.modalities = modalities;
+                return this;
+            }
+
+            public Builder serviceTier(@Nullable String serviceTier) {
+                this.serviceTier = serviceTier;
+                return this;
+            }
+
+            public Builder user(@Nullable String user) {
+                this.user = user;
+                return this;
+            }
+
+            public Builder parallelToolCalls(@Nullable Boolean parallelToolCalls) {
+                this.parallelToolCalls = parallelToolCalls;
+                return this;
+            }
+
+            public Builder promptCacheKey(@Nullable String promptCacheKey) {
+                this.promptCacheKey = promptCacheKey;
+                return this;
+            }
+
+            public Builder sessionId(@Nullable String sessionId) {
+                this.sessionId = sessionId;
+                return this;
+            }
+
+            public Builder provider(@Nullable ProviderPreferences provider) {
+                this.provider = provider;
+                return this;
+            }
+
+            public Builder reasoning(@Nullable Reasoning reasoning) {
+                this.reasoning = reasoning;
+                return this;
+            }
+
+            public Builder toolChoice(@Nullable Object toolChoice) {
+                this.toolChoice = toolChoice;
+                return this;
+            }
+
+            public Builder extraBody(@Nullable Map<String, Object> extraBody) {
+                this.extraBody = extraBody;
+                return this;
+            }
+
+            public ChatCompletionRequest build() {
+                Assert.notNull(this.messages, "Messages must not be null");
+                return new ChatCompletionRequest(this.messages, this.stream, this.tools, this.responseFormat, this.model,
+                        this.maxTokens, this.temperature, this.topP, this.topK, this.frequencyPenalty,
+                        this.presencePenalty, this.repetitionPenalty, this.seed, this.minP, this.topA, this.stop,
+                        this.logitBias, this.topLogprobs, this.logprobs, this.models, this.modalities, this.serviceTier,
+                        this.user, this.parallelToolCalls, this.promptCacheKey, this.sessionId, this.provider,
+                        this.reasoning, this.toolChoice, this.extraBody);
+            }
+
         }
 
         public static class ToolChoiceBuilder {
