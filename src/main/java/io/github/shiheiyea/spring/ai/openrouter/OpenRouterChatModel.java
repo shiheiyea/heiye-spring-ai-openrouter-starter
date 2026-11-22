@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -593,9 +594,11 @@ public class OpenRouterChatModel implements ChatModel {
 
     /**
      * 音频格式取 MIME 子类型，OpenRouter 只认扩展名形式的格式串。
+     *
+     * 协议值必须与 locale 无关，土耳其语环境下不带 locale 的小写化会把 {@code I} 变成 {@code ı}。
      */
     private String audioFormat(MimeType mimeType) {
-        return mimeType.getSubtype() != null ? mimeType.getSubtype().toLowerCase() : "wav";
+        return mimeType.getSubtype() != null ? mimeType.getSubtype().toLowerCase(Locale.ROOT) : "wav";
     }
 
     private List<FunctionTool> getFunctionTools(List<ToolDefinition> toolDefinitions) {
