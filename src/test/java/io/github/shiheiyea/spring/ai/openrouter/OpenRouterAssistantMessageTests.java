@@ -26,6 +26,7 @@ import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
+import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.AssistantMessage.ToolCall;
 import org.springframework.ai.content.Media;
 
@@ -191,6 +192,45 @@ class OpenRouterAssistantMessageTests {
         assertThat(message.getMetadata()).containsAllEntriesOf(properties);
         assertThat(message.getToolCalls()).isEqualTo(toolCalls);
         assertThat(message.getMedia()).isEqualTo(media);
+    }
+
+    @Test
+    void mutateReplaysReasoningFields() {
+        Map<String, Object> properties = Map.of("key", "value");
+        List<ToolCall> toolCalls = List.of(new ToolCall("1", "function", "testFunction", "{}"));
+        List<ReasoningDetail> reasoningDetails = List.of(new ReasoningDetail(
+                ReasoningDetail.ReasoningDetailType.SUMMARY, "id-1", 0, null, null, "summary", null, null, null, null,
+                null, null));
+
+        OpenRouterAssistantMessage original = OpenRouterAssistantMessage.builder()
+                .content("content")
+                .reasoningContent("reasoning")
+                .reasoningDetails(reasoningDetails)
+                .properties(properties)
+                .toolCalls(toolCalls)
+                .build();
+
+        OpenRouterAssistantMessage mutated = original.mutate().build();
+
+        assertThat(mutated.getText()).isEqualTo("content");
+        assertThat(mutated.getReasoningContent()).isEqualTo("reasoning");
+        assertThat(mutated.getReasoningDetails()).isEqualTo(reasoningDetails);
+        assertThat(mutated.getMetadata()).containsAllEntriesOf(properties);
+        assertThat(mutated.getToolCalls()).isEqualTo(toolCalls);
+    }
+
+    @Test
+    void copyKeepsSubclassAndReasoningFields() {
+        OpenRouterAssistantMessage original = OpenRouterAssistantMessage.builder()
+                .content("content")
+                .reasoningContent("reasoning")
+                .build();
+
+        AssistantMessage copied = original.copy();
+
+        // 复制后仍是子类，推理字段不会被基类复制逻辑丢掉
+        assertThat(copied).isInstanceOf(OpenRouterAssistantMessage.class);
+        assertThat(((OpenRouterAssistantMessage) copied).getReasoningContent()).isEqualTo("reasoning");
     }
 
 }

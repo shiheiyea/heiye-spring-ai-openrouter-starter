@@ -69,6 +69,16 @@ public class OpenRouterAssistantMessage extends AssistantMessage {
     }
 
     @Override
+    public Builder mutate() {
+        return builder().content(getText())
+            .properties(getMetadata())
+            .toolCalls(getToolCalls())
+            .media(getMedia())
+            .reasoningContent(getReasoningContent())
+            .reasoningDetails(getReasoningDetails());
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
