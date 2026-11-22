@@ -314,6 +314,27 @@ public class OpenRouterChatModel implements ChatModel {
     }
 
     /**
+     * 工具调用必须有 id，缺了就无法与后续的工具响应配对，这里直接失败而不是产出非法调用。
+     */
+    private String requireToolCallId(ToolCall toolCall) {
+        if (toolCall.id() == null || toolCall.id().isEmpty()) {
+            throw new IllegalStateException("Tool call id is missing");
+        }
+        return toolCall.id();
+    }
+
+    /**
+     * 函数名同理，缺失时上游无法确定要执行哪个工具。
+     */
+    private String requireToolCallFunctionName(ToolCall toolCall) {
+        if (toolCall.function() == null || toolCall.function().name() == null
+                || toolCall.function().name().isEmpty()) {
+            throw new IllegalStateException("Tool call function name is missing");
+        }
+        return toolCall.function().name();
+    }
+
+    /**
      * 把流式分块转成与非流式同形的响应对象，usage 留给调用处单独处理。
      */
     private ChatCompletion chunkToChatCompletion(ChatCompletionChunk chunk) {
@@ -343,9 +364,10 @@ public class OpenRouterChatModel implements ChatModel {
                 toolCalls = message.toolCalls()
                         .stream()
                         .map(toolCall -> new AssistantMessage.ToolCall(
-                                toolCall.id(), "function",
-                                toolCall.function() != null ? toolCall.function().name() : null,
-                                toolCall.function() != null ? toolCall.function().arguments() : null))
+                                requireToolCallId(toolCall), "function",
+                                requireToolCallFunctionName(toolCall),
+                                toolCall.function() != null && toolCall.function().arguments() != null
+                                        ? toolCall.function().arguments() : ""))
                         .toList();
             }
         }
