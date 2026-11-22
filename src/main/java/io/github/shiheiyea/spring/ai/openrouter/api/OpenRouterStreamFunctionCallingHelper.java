@@ -79,7 +79,7 @@ public class OpenRouterStreamFunctionCallingHelper {
     /**
      * 合并增量消息。
      *
-     * 文本内容按顺序拼接；工具调用按 id 判定是新增还是续写，续写时把参数拼接到最后一个调用上。
+     * 文本内容按顺序拼接；工具调用按 {@code index} 归并，同一序号的分片累积成一次调用。
      */
     private ChatCompletionMessage merge(@Nullable ChatCompletionMessage previous, ChatCompletionMessage current) {
         if (previous == null) {
@@ -95,27 +95,9 @@ public class OpenRouterStreamFunctionCallingHelper {
             content = (previousRawContent instanceof String previousString) ? previousString : null;
         }
 
-        List<ToolCall> toolCalls;
         List<ToolCall> currentToolCalls = current.toolCalls();
-        if (currentToolCalls != null && !currentToolCalls.isEmpty()) {
-            List<ToolCall> previousToolCalls = previous.toolCalls() != null ? new ArrayList<>(previous.toolCalls())
-                    : new ArrayList<>();
-            for (ToolCall currentToolCall : currentToolCalls) {
-                // 带 id 的是新调用的开头，不带 id 的是上一个调用的参数续写
-                if (currentToolCall.id() != null) {
-                    previousToolCalls.add(currentToolCall);
-                }
-                else if (!previousToolCalls.isEmpty()) {
-                    int lastIndex = previousToolCalls.size() - 1;
-                    previousToolCalls.set(lastIndex,
-                            this.merge(previousToolCalls.get(lastIndex), currentToolCall));
-                }
-            }
-            toolCalls = previousToolCalls;
-        }
-        else {
-            toolCalls = previous.toolCalls();
-        }
+        List<ToolCall> toolCalls = (currentToolCalls != null && !currentToolCalls.isEmpty())
+                ? this.mergeToolCalls(previous.toolCalls(), currentToolCalls) : previous.toolCalls();
 
         return new ChatCompletionMessage(content,
                 current.role() != null ? current.role() : previous.role(),
@@ -125,6 +107,49 @@ public class OpenRouterStreamFunctionCallingHelper {
                 this.mergeReasoningDetails(previous.reasoningDetails(), current.reasoningDetails()),
                 current.images() != null ? current.images() : previous.images(),
                 current.audio() != null ? current.audio() : previous.audio());
+    }
+
+    /**
+     * 按序号归并工具调用。
+     *
+     * 并行工具调用时多个调用会交错下发，续写分片只带序号、不带 id，按 id 是否出现来判断新增
+     * 会把第二个及以后的调用错误地并到前一个上，因此以序号为准。
+     */
+    private List<ToolCall> mergeToolCalls(@Nullable List<ToolCall> previous, List<ToolCall> current) {
+        List<ToolCall> merged = previous != null ? new ArrayList<>(previous) : new ArrayList<>();
+        for (ToolCall currentToolCall : current) {
+            int existing = this.toolCallIndexOf(merged, currentToolCall);
+            if (existing < 0) {
+                merged.add(currentToolCall);
+            }
+            else {
+                merged.set(existing, this.merge(merged.get(existing), currentToolCall));
+            }
+        }
+        return merged;
+    }
+
+    private int toolCallIndexOf(List<ToolCall> toolCalls, ToolCall target) {
+        // 序号是并行调用的唯一标识；缺序号时退回按 id 匹配
+        if (target.index() != null) {
+            for (int i = 0; i < toolCalls.size(); i++) {
+                if (target.index().equals(toolCalls.get(i).index())) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+        if (target.id() != null) {
+            for (int i = 0; i < toolCalls.size(); i++) {
+                ToolCall candidate = toolCalls.get(i);
+                if (candidate.index() == null && target.id().equals(candidate.id())) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+        // 既无序号也无 id 的分片是上一个调用的参数续写
+        return toolCalls.isEmpty() ? -1 : toolCalls.size() - 1;
     }
 
     /**

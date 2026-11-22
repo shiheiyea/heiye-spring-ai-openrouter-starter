@@ -132,6 +132,55 @@ class OpenRouterStreamFunctionCallingHelperTests {
     }
 
     @Test
+    void mergeShouldKeepParallelToolCallsSeparateByIndex() {
+        // 两个并行调用的首片同时下发，各自带序号与 id
+        ToolCall firstCallStart = new ToolCall(0, "call-1", "function",
+                new ChatCompletionFunction("getWeather", "{\"city\":"));
+        ToolCall secondCallStart = new ToolCall(1, "call-2", "function",
+                new ChatCompletionFunction("getTime", "{\"zone\":"));
+
+        ChatCompletionChunk previous = chunkWithDelta("id", messageWithToolCalls(List.of(firstCallStart)));
+        ChatCompletionChunk current = chunkWithDelta("id", messageWithToolCalls(List.of(secondCallStart)));
+
+        ChatCompletionChunk result = this.helper.merge(previous, current);
+
+        List<ToolCall> toolCalls = result.choices().get(0).delta().toolCalls();
+        assertThat(toolCalls).hasSize(2);
+        assertThat(toolCalls.get(0).index()).isZero();
+        assertThat(toolCalls.get(0).function().name()).isEqualTo("getWeather");
+        assertThat(toolCalls.get(1).index()).isEqualTo(1);
+        assertThat(toolCalls.get(1).function().name()).isEqualTo("getTime");
+    }
+
+    @Test
+    void mergeShouldAppendArgumentsToTheRightParallelCall() {
+        ToolCall firstCall = new ToolCall(0, "call-1", "function",
+                new ChatCompletionFunction("getWeather", "{\"city\":"));
+        ToolCall secondCall = new ToolCall(1, "call-2", "function",
+                new ChatCompletionFunction("getTime", "{\"zone\":"));
+
+        ChatCompletionChunk start = chunkWithDelta("id", messageWithToolCalls(List.of(firstCall, secondCall)));
+
+        // 续片只带序号，不带 id
+        ToolCall firstCallDelta = new ToolCall(0, null, null,
+                new ChatCompletionFunction(null, "\"Paris\"}"));
+        ToolCall secondCallDelta = new ToolCall(1, null, null,
+                new ChatCompletionFunction(null, "\"UTC\"}"));
+
+        ChatCompletionChunk result = this.helper.merge(start,
+                chunkWithDelta("id", messageWithToolCalls(List.of(firstCallDelta))));
+        result = this.helper.merge(result,
+                chunkWithDelta("id", messageWithToolCalls(List.of(secondCallDelta))));
+
+        List<ToolCall> toolCalls = result.choices().get(0).delta().toolCalls();
+        assertThat(toolCalls).hasSize(2);
+        assertThat(toolCalls.get(0).function().name()).isEqualTo("getWeather");
+        assertThat(toolCalls.get(0).function().arguments()).isEqualTo("{\"city\":\"Paris\"}");
+        assertThat(toolCalls.get(1).function().name()).isEqualTo("getTime");
+        assertThat(toolCalls.get(1).function().arguments()).isEqualTo("{\"zone\":\"UTC\"}");
+    }
+
+    @Test
     void mergeShouldPreferCurrentFinishReason() {
         ChatCompletionChunk previous = chunkWithFinishReason("id", ChatCompletionFinishReason.STOP);
         ChatCompletionChunk current = chunkWithFinishReason("id", ChatCompletionFinishReason.LENGTH);
