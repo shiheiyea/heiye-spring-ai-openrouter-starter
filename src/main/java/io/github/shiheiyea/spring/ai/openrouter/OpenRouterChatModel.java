@@ -76,6 +76,7 @@ import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ChatCompletion
 import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ChatCompletionMessage;
 import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ChatCompletionRequest;
 import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.FunctionTool;
+import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.Reasoning;
 import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ReasoningDetail;
 import io.github.shiheiyea.spring.ai.openrouter.api.OpenRouterApi.ToolCall;
 import io.github.shiheiyea.spring.ai.openrouter.api.common.OpenRouterConstants;
@@ -496,7 +497,26 @@ public class OpenRouterChatModel implements ChatModel {
             requestBuilder.tools(requestOptions.getTools());
         }
 
+        this.validateReasoningParameters(requestOptions);
+
         return requestBuilder.build();
+    }
+
+    /**
+     * 推理强度与推理预算互斥，同时设置会被上游直接拒绝，在这里提前告警。
+     *
+     * 上游的报错信息是 {@code Only one of "reasoning.effort" and "reasoning.max_tokens" can be
+     * specified}，一次请求失败才会暴露，构建期发现可以避免把错误带到调用链上游。
+     */
+    private void validateReasoningParameters(OpenRouterChatOptions options) {
+        Reasoning reasoning = options.getReasoning();
+        if (reasoning == null) {
+            return;
+        }
+        if (reasoning.effort() != null && reasoning.maxTokens() != null) {
+            logger.warn("Reasoning effort and reasoning max_tokens are mutually exclusive; "
+                    + "only one of them can be specified. The request will be rejected by OpenRouter.");
+        }
     }
 
     /**
