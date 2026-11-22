@@ -127,8 +127,8 @@ class OpenRouterChatModelTests {
         ChatResponse response = model.call(new Prompt("hello"));
 
         assertThat(response.getResults()).hasSize(1);
-        // 缺失 finish_reason 时退空串，不给 null
-        assertThat(response.getResult().getMetadata().getFinishReason()).isEmpty();
+        // 缺失 finish_reason 时不给值，避免被当成一个真实的结束原因
+        assertThat(response.getResult().getMetadata().getFinishReason()).isNull();
         assertThat(response.getResult().getOutput().getToolCalls()).isEmpty();
         ChatResponseMetadata metadata = response.getMetadata();
         assertThat(metadata.getId()).isEqualTo("id-1");

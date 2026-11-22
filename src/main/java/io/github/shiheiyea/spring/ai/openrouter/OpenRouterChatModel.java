@@ -88,6 +88,12 @@ public class OpenRouterChatModel implements ChatModel {
     private static final JsonHelper jsonHelper = new JsonHelper();
 
     /**
+     * 推理内容在助手消息元数据里的键名。流式调用把逐片下发的推理内容累加后放在这里，
+     * 使用方读取元数据即可拿到整段推理。
+     */
+    private static final String REASONING_CONTENT = "reasoningContent";
+
+    /**
      * 兜底观测约定，没有显式设置时使用。
      */
     public static final ChatModelObservationConvention DEFAULT_OBSERVATION_CONVENTION = new DefaultChatModelObservationConvention();
@@ -224,6 +230,10 @@ public class OpenRouterChatModel implements ChatModel {
             // 流式响应只有首个分块带 role，同一 id 的后续分块共用它，因此按 id 记忆
             ConcurrentHashMap<String, String> roleMap = new ConcurrentHashMap<>();
 
+            // 推理内容逐分块下发，聚合器对元数据是后写覆盖，必须自己按 id 与 choice 序号累加，
+            // 否则整条流结束后只剩最后一片的推理片段
+            ConcurrentHashMap<String, String> reasoningMap = new ConcurrentHashMap<>();
+
             ChatModelObservationContext observationContext = ChatModelObservationContext.builder()
                     .prompt(prompt)
                     .provider(OpenRouterConstants.PROVIDER_NAME)
@@ -253,10 +263,15 @@ public class OpenRouterChatModel implements ChatModel {
                             roleMap.putIfAbsent(id, choice.message().role().name());
                         }
 
+                        // 累加本 choice 累计收到的推理内容，覆盖聚合器的后写语义
+                        String accumulatedReasoning = reasoningMap.merge(id + ":" + choice.index(),
+                                getReasoningContent(choice), String::concat);
+
                         Map<String, Object> metadata = Map.of(
                                 "id", id != null ? id : "",
                                 "role", roleMap.getOrDefault(id, ""),
-                                "finishReason", choice.finishReason() != null ? choice.finishReason().name() : "");
+                                "finishReason", choice.finishReason() != null ? choice.finishReason().name() : "",
+                                REASONING_CONTENT, accumulatedReasoning);
                         return buildGeneration(choice, metadata);
                     }).toList();
 
@@ -279,6 +294,23 @@ public class OpenRouterChatModel implements ChatModel {
 
             return new MessageAggregator().aggregate(flux, observationContext::setResponse);
         });
+    }
+
+    /**
+     * 取出一个 choice 携带的推理片段，用于流式累加。
+     *
+     * OpenRouter 的推理文本落在 {@code reasoning} 字段，部分上游模型经它透传时只给
+     * {@code reasoning_content}，两者都没有时返回空串，累加结果不受影响。
+     */
+    private String getReasoningContent(ChatCompletion.Choice choice) {
+        if (choice.message() == null) {
+            return "";
+        }
+        String reasoning = choice.message().reasoning();
+        if (reasoning != null) {
+            return reasoning;
+        }
+        return "";
     }
 
     /**
@@ -318,9 +350,17 @@ public class OpenRouterChatModel implements ChatModel {
             }
         }
 
-        // 聚合网关下部分 provider 只回 native_finish_reason
+        // 流式分片的推理内容由调用处累加后放进元数据，最终消息以累加值为准，
+        // 否则一条流结束时助手消息上只会剩下最后一片推理片段
+        Object accumulatedReasoning = metadata.get(REASONING_CONTENT);
+        if (accumulatedReasoning instanceof String reasoning && !reasoning.isEmpty()) {
+            reasoningContent = reasoning;
+        }
+
+        // 聚合网关下部分 provider 只回 native_finish_reason；两者都缺失说明该分块只是中间片，
+        // 这里保持 null 而不是空串，避免被当成一个真实的结束原因
         String finishReason = choice.finishReason() != null ? choice.finishReason().name()
-                : choice.nativeFinishReason() != null ? choice.nativeFinishReason().name() : "";
+                : (choice.nativeFinishReason() != null ? choice.nativeFinishReason().name() : null);
 
         ChatGenerationMetadata generationMetadata = ChatGenerationMetadata.builder().finishReason(finishReason).build();
 
